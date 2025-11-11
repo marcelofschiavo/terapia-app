@@ -4,16 +4,15 @@ from gradio.routes import mount_gradio_app
 import uvicorn
 import os
 
-# Importa o aplicativo Gradio completo (app.py)
+# Importa o aplicativo Gradio completo
 from app import app as gradio_app
 
 # Cria o aplicativo FastAPI (servidor principal)
 app = FastAPI(title="Terap.ia API")
 
-# Monta o Gradio na raiz (/) do FastAPI
-# Isso resolve o conflito Gunicorn/Gradio
-app = mount_gradio_app(app, gradio_app) 
+# 3. Monta o Gradio na raiz (/) do FastAPI
+# --- MUDANÇA: Adiciona o argumento 'path' ---
+app = mount_gradio_app(app, gradio_app, path="/") 
 
-# Se for rodar localmente (opcional)
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=7860, reload=True)
+    uvicorn.run("main:app", host="127.0.0.1", port=7860, reload=True)
