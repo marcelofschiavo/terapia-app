@@ -1,4 +1,4 @@
-# services/db_service.py (Versão Completa e Funcional)
+# services/db_service.py (Versão COMPLETA e CORRIGIDA)
 import psycopg2
 from psycopg2 import sql
 from contextlib import contextmanager
@@ -28,7 +28,6 @@ class DBService:
         try:
             with get_db_connection() as conn:
                 print("Conexão com PostgreSQL (Render) bem-sucedida.")
-            # Carrega a lista de psicólogas na inicialização
             self.psicologas_list = self.get_psicologas_list_for_signup()
             self.all_users_data = self.get_all_users()
             print(f"{len(self.psicologas_list)} psicólogas carregadas do DB.")
@@ -38,7 +37,6 @@ class DBService:
             self.all_users_data = []
 
     def get_all_users(self):
-        # (Sem mudanças)
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
@@ -50,7 +48,6 @@ class DBService:
             return []
 
     def get_psicologas_list_for_signup(self):
-        # (Sem mudanças)
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
@@ -62,7 +59,6 @@ class DBService:
             return ["Erro ao carregar lista"]
 
     def get_pacientes_da_psicologa(self, psicologa_username: str):
-        # (Sem mudanças)
         pacientes = []
         try:
             for row in self.all_users_data:
@@ -76,7 +72,6 @@ class DBService:
             return [f"Erro ao buscar pacientes: {e}"]
 
     def check_user(self, username, password):
-        # (Sem mudanças)
         try:
             for row in self.all_users_data:
                 if row and len(row) > 3 and row[0] == username and row[1] == password:
@@ -91,7 +86,6 @@ class DBService:
             return False, None, None
 
     def create_user(self, username, password, psicologa_selecionada):
-        # (Sem mudanças)
         if not username or not password or len(username) < 3 or len(password) < 3:
             return False, "Usuário e senha devem ter pelo menos 3 caracteres."
         if not psicologa_selecionada or psicologa_selecionada == "Nenhuma psicóloga encontrada":
@@ -116,7 +110,6 @@ class DBService:
             return False, f"Erro no servidor ao tentar criar usuário: {e}"
 
     def write_checkin(self, checkin: CheckinFinal, gemini_data: GeminiResponse, paciente_id: str, psicologa_id: str, compartilhado: bool):
-        # (Sem mudanças)
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
@@ -143,8 +136,28 @@ class DBService:
             print(f"Erro ao escrever no SQL (checkin): {e}")
             raise
 
+    # --- FUNÇÃO SEND_RECADO (NOVA) ---
+    def send_recado(self, psicologa_id: str, paciente_id: str, mensagem_texto: str):
+        """Envia um recado da psicóloga para o paciente."""
+        try:
+            with get_db_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO recados (psicologa_id, paciente_id, mensagem_texto) 
+                        VALUES (%s, %s, %s)
+                        """,
+                        (psicologa_id, paciente_id, mensagem_texto)
+                    )
+                    conn.commit()
+                    print(f"Recado enviado por {psicologa_id} para {paciente_id}.")
+                    return True, f"Recado enviado com sucesso para {paciente_id}!"
+        except Exception as e:
+            print(f"Erro ao enviar recado: {e}")
+            return False, f"Erro no servidor ao enviar recado: {e}"
+
+
     def get_all_checkin_data(self):
-        # (Sem mudanças)
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
@@ -156,7 +169,6 @@ class DBService:
             print(f"Erro ao ler o histórico: {e}")
             return [], []
 
-    # --- FUNÇÃO REATIVADA ---
     def get_recados_paciente(self, paciente_id: str):
         """Busca todos os recados para um paciente."""
         try:
@@ -167,14 +179,12 @@ class DBService:
                         (paciente_id,)
                     )
                     rows = cur.fetchall()
-                    # Headers mínimos para a exibição de Recados
                     headers = ['timestamp', 'psicologa_id', 'mensagem_texto']
                     return headers, rows if rows else ([], [])
         except Exception as e:
             print(f"Erro ao ler recados: {e}")
             return [], []
 
-    # --- FUNÇÃO REATIVADA ---
     def get_ultimo_diario_paciente(self, paciente_id: str):
         """Busca o último diário COMPARTILHADO de um paciente."""
         try:
@@ -200,7 +210,6 @@ class DBService:
             return None, f"Erro ao buscar diário: {e}"
 
     def delete_last_record(self, paciente_id: str):
-        # (Sem mudanças)
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
