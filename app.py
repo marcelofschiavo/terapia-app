@@ -63,6 +63,7 @@ with gr.Blocks(
     )
 
 # --- Lançar a Aplicação ---
-# O Gunicorn usará o objeto 'app'
 if __name__ == "__main__":
-    app.launch(debug=True)
+    # O Gradio é um aplicativo FastAPI disfarçado. 
+    # Ele inicia o servidor uvicorn interno e expõe o aplicativo.
+    app.launch(server_name="0.0.0.0", server_port=10000)
