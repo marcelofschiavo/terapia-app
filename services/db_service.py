@@ -1,4 +1,4 @@
-# services/db_service.py (Com Lógica de Busca de Histórico para a Psicóloga)
+# services/db_service.py (Versão Completa e Funcional)
 import psycopg2
 from psycopg2 import sql
 from contextlib import contextmanager
@@ -156,33 +156,72 @@ class DBService:
             print(f"Erro ao ler o histórico: {e}")
             return [], []
 
-    # --- FUNÇÃO ATUALIZADA (Busca dados para o Histórico da Psicóloga) ---
-    def get_paciente_checkin_history(self, paciente_id: str, shared_only: bool = False):
-        """Busca o histórico de check-ins de um paciente, com opção de filtrar por compartilhado."""
+    # --- FUNÇÃO REATIVADA ---
+    def get_recados_paciente(self, paciente_id: str):
+        """Busca todos os recados para um paciente."""
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
-                    
-                    base_query = """
-                    SELECT * FROM checkins 
-                    WHERE paciente_id = %s 
-                    """
-                    params = [paciente_id]
-                    
-                    if shared_only:
-                        base_query += " AND compartilhado = TRUE "
-                        
-                    base_query += " ORDER BY timestamp DESC LIMIT 50"
-                    
-                    cur.execute(base_query, params)
+                    cur.execute(
+                        "SELECT timestamp, psicologa_id, mensagem_texto FROM recados WHERE paciente_id = %s ORDER BY timestamp DESC LIMIT 20",
+                        (paciente_id,)
+                    )
                     rows = cur.fetchall()
-                    headers = [desc[0] for desc in cur.description]
+                    # Headers mínimos para a exibição de Recados
+                    headers = ['timestamp', 'psicologa_id', 'mensagem_texto']
                     return headers, rows if rows else ([], [])
         except Exception as e:
-            print(f"Erro ao buscar histórico do paciente: {e}")
+            print(f"Erro ao ler recados: {e}")
             return [], []
 
-    # (Funções de recado e delete omitidas para brevidade, mas permanecem no arquivo)
+    # --- FUNÇÃO REATIVADA ---
+    def get_ultimo_diario_paciente(self, paciente_id: str):
+        """Busca o último diário COMPARTILHADO de um paciente."""
+        try:
+            with get_db_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT topicos_selecionados, diario_texto FROM checkins 
+                        WHERE paciente_id = %s AND compartilhado = TRUE 
+                        ORDER BY timestamp DESC LIMIT 1
+                        """,
+                        (paciente_id,)
+                    )
+                    row = cur.fetchone()
+                    if row:
+                        topicos = row[0]
+                        diario = row[1]
+                        return f"Tópicos: {topicos}\n\nDiário: {diario}", f"Último diário (compartilhado) de {paciente_id} carregado."
+                    else:
+                        return None, f"Nenhum diário compartilhado encontrado para {paciente_id}."
+        except Exception as e:
+            print(f"Erro ao buscar último diário: {e}")
+            return None, f"Erro ao buscar diário: {e}"
+
+    def delete_last_record(self, paciente_id: str):
+        # (Sem mudanças)
+        try:
+            with get_db_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT id FROM checkins WHERE paciente_id = %s ORDER BY timestamp DESC LIMIT 1",
+                        (paciente_id,)
+                    )
+                    last_record = cur.fetchone()
+                    
+                    if last_record:
+                        record_id = last_record[0]
+                        cur.execute("DELETE FROM checkins WHERE id = %s", (record_id,))
+                        conn.commit()
+                        print(f"Registro ID {record_id} ({paciente_id}) apagado do SQL.")
+                        return True
+                    else:
+                        print(f"Nenhum registro encontrado para apagar para {paciente_id}")
+                        return False
+        except Exception as e:
+            print(f"Erro ao apagar o registro: {e}")
+            return False
 
 # Cria uma instância única
 db_service = DBService()

@@ -505,5 +505,6 @@ with gr.Blocks(
     )
 
 # --- Lançar a Aplicação ---
+# O Gradio só deve iniciar se for executado diretamente (para teste local)
 if __name__ == "__main__":
     app.launch(debug=True)

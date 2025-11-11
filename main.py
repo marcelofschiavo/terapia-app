@@ -1,18 +1,19 @@
-# main.py
+# main.py (Corrigido a montagem do Gradio)
+import uvicorn
 from fastapi import FastAPI
 from gradio.routes import mount_gradio_app
-import uvicorn
 import os
 
-# Importa o aplicativo Gradio completo
+# 1. Importa o aplicativo Gradio completo (app.py)
 from app import app as gradio_app
 
-# Cria o aplicativo FastAPI (servidor principal)
-app = FastAPI(title="Terap.ia API")
+# 2. Cria o aplicativo FastAPI (servidor principal)
+# O título do aplicativo será definido aqui
+app = FastAPI(title="Terap.ia - Painel Clínico")
 
-# 3. Monta o Gradio na raiz (/) do FastAPI
-# --- MUDANÇA: Adiciona o argumento 'path' ---
-app = mount_gradio_app(app, gradio_app, path="/") 
+# 3. Monta o Gradio na raiz (/) do FastAPI, definindo o 'path'
+app = mount_gradio_app(app, blocks=gradio_app, path="/") 
 
 if __name__ == "__main__":
+    # Comando de execução local (para debug)
     uvicorn.run("main:app", host="127.0.0.1", port=7860, reload=True)
