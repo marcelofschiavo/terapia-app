@@ -518,9 +518,10 @@ with gr.Blocks(
         show_progress="full"
     )
 
-# --- Lançar a Aplicação ---
+# --- Lançar a Aplicação (PARA TESTE LOCAL) ---
 if __name__ == "__main__":
-    app.launch(debug=True) # Mantido para teste local
+    app.launch(debug=True)
 
-# --- MUDANÇA: Objeto ASGI para o Gunicorn usar ---
+# --- MUDANÇA: Objeto ASGI para o Gunicorn usar no Docker/Render ---
+# (Isso só será usado quando o Docker/Gunicorn rodar o CMD)
 app = app.app_for_public_serving()
