@@ -45,7 +45,7 @@ def fn_login(username, password):
     else:
         return None, gr.update(value="Login falhou. Verifique seu usuário e senha.", visible=True)
 
-def fn_handle_role(user_data, request: gr.Request):
+def fn_handle_role(user_data):
     if not user_data: 
         return gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), \
                gr.update(value=""), gr.update(choices=LISTA_DE_PSICOLOGAS_CHOICES), gr.update(choices=LISTA_DE_PSICOLOGAS_CHOICES)
@@ -520,4 +520,7 @@ with gr.Blocks(
 
 # --- Lançar a Aplicação ---
 if __name__ == "__main__":
-    app.launch(debug=True)
+    app.launch(debug=True) # Mantido para teste local
+
+# --- MUDANÇA: Objeto ASGI para o Gunicorn usar ---
+app = app.app_for_public_serving()
