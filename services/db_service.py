@@ -1,11 +1,11 @@
-# services/db_service.py (Versão Completa e Funcional)
+# services/db_service.py (Com Dual-Writing e Funções de Leitura)
 import psycopg2
 from psycopg2 import sql
 from contextlib import contextmanager
 from datetime import datetime
 from models.schemas import CheckinFinal, GeminiResponse
 import os
-import json
+from .sheets_connector import SheetsConnector # <-- NOVO IMPORT
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
@@ -24,10 +24,20 @@ class DBService:
     def __init__(self):
         self.psicologas_list = []
         self.all_users_data = []
+        self.sheets_connector = None # Inicializa o conector Sheets como None
         
         try:
             with get_db_connection() as conn:
                 print("Conexão com PostgreSQL (Render) bem-sucedida.")
+            
+            # Tenta carregar o conector Sheets (pode falhar, mas o app continua)
+            try:
+                self.sheets_connector = SheetsConnector()
+                print("Google Sheets Connector ativado para backup.")
+            except Exception as e:
+                print("Alerta: Google Sheets (Backup) desativado.")
+            
+            # Carrega a lista de psicólogas na inicialização
             self.psicologas_list = self.get_psicologas_list_for_signup()
             self.all_users_data = self.get_all_users()
             print(f"{len(self.psicologas_list)} psicólogas carregadas do DB.")
@@ -37,6 +47,7 @@ class DBService:
             self.all_users_data = []
 
     def get_all_users(self):
+        # (Funções de Login/Cadastro, sem mudanças, usam o cache)
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
@@ -48,6 +59,7 @@ class DBService:
             return []
 
     def get_psicologas_list_for_signup(self):
+        # (Funções de Login/Cadastro, sem mudanças, usam o cache)
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
@@ -59,6 +71,7 @@ class DBService:
             return ["Erro ao carregar lista"]
 
     def get_pacientes_da_psicologa(self, psicologa_username: str):
+        # (Funções de Login/Cadastro, sem mudanças, usam o cache)
         pacientes = []
         try:
             for row in self.all_users_data:
@@ -72,6 +85,7 @@ class DBService:
             return [f"Erro ao buscar pacientes: {e}"]
 
     def check_user(self, username, password):
+        # (Funções de Login/Cadastro, sem mudanças, usam o cache)
         try:
             for row in self.all_users_data:
                 if row and len(row) > 3 and row[0] == username and row[1] == password:
@@ -86,6 +100,7 @@ class DBService:
             return False, None, None
 
     def create_user(self, username, password, psicologa_selecionada):
+        # (Funções de Login/Cadastro, sem mudanças, usam o cache)
         if not username or not password or len(username) < 3 or len(password) < 3:
             return False, "Usuário e senha devem ter pelo menos 3 caracteres."
         if not psicologa_selecionada or psicologa_selecionada == "Nenhuma psicóloga encontrada":
@@ -109,7 +124,11 @@ class DBService:
             print(f"Erro ao criar usuário: {e}")
             return False, f"Erro no servidor ao tentar criar usuário: {e}"
 
+    # --- FUNÇÃO DE ESCRITA (DUAL-WRITING) ---
     def write_checkin(self, checkin: CheckinFinal, gemini_data: GeminiResponse, paciente_id: str, psicologa_id: str, compartilhado: bool):
+        """Salva no SQL e faz o backup no Google Sheets."""
+        
+        # 1. SALVAR NO POSTGRESQL (Prioridade)
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
@@ -133,10 +152,21 @@ class DBService:
                     conn.commit()
                     print(f"Dados de '{paciente_id}' (Psic: {psicologa_id}) salvos no SQL. Compartilhado: {compartilhado}")
         except Exception as e:
-            print(f"Erro ao escrever no SQL (checkin): {e}")
-            raise
+            print(f"Erro Crítico ao escrever no SQL (checkin): {e}")
+            raise # Levanta o erro se o SQL falhar
+            
+        # 2. SALVAR NO GOOGLE SHEETS (Backup Opcional)
+        if self.sheets_connector:
+            try:
+                self.sheets_connector.write_checkin(checkin, gemini_data, paciente_id, psicologa_id, compartilhado)
+                print("Backup para Google Sheets bem-sucedido.")
+            except Exception as e:
+                print(f"AVISO: Falha no backup para Google Sheets: {e}")
+                # Não levantamos o erro aqui; o check-in já está salvo no SQL.
+
 
     def get_all_checkin_data(self):
+        # (Função de Leitura - Sem mudanças)
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
@@ -148,9 +178,8 @@ class DBService:
             print(f"Erro ao ler o histórico: {e}")
             return [], []
 
-    # --- FUNÇÃO ATIVADA (CORRIGINDO O ERRO) ---
     def get_recados_paciente(self, paciente_id: str):
-        """Busca todos os recados para um paciente."""
+        # (Função de Leitura - Sem mudanças)
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
@@ -165,9 +194,8 @@ class DBService:
             print(f"Erro ao ler recados: {e}")
             return [], []
 
-    # --- FUNÇÃO ATIVADA (CORRIGINDO O ERRO) ---
     def get_ultimo_diario_paciente(self, paciente_id: str):
-        """Busca o último diário COMPARTILHADO de um paciente."""
+        # (Função de Leitura - Sem mudanças)
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
@@ -191,26 +219,29 @@ class DBService:
             return None, f"Erro ao buscar diário: {e}"
 
     def send_recado(self, psicologa_id: str, paciente_id: str, mensagem_texto: str):
-        """Envia um recado da psicóloga para o paciente."""
+        # --- FUNÇÃO DE ESCRITA (DUAL-WRITING) ---
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
-                        """
-                        INSERT INTO recados (psicologa_id, paciente_id, mensagem_texto) 
-                        VALUES (%s, %s, %s)
-                        """,
+                        "INSERT INTO recados (psicologa_id, paciente_id, mensagem_texto) VALUES (%s, %s, %s)",
                         (psicologa_id, paciente_id, mensagem_texto)
                     )
                     conn.commit()
-                    print(f"Recado enviado por {psicologa_id} para {paciente_id}.")
+                    print(f"Recado enviado por {psicologa_id} para {paciente_id} no SQL.")
+                    
+                    # Tenta o backup no Google Sheets
+                    if self.sheets_connector:
+                         self.sheets_connector.send_recado(psicologa_id, paciente_id, mensagem_texto)
+                         print("Backup de Recado para Sheets bem-sucedido.")
+                         
                     return True, f"Recado enviado com sucesso para {paciente_id}!"
         except Exception as e:
             print(f"Erro ao enviar recado: {e}")
             return False, f"Erro no servidor ao enviar recado: {e}"
 
     def delete_last_record(self, paciente_id: str):
-        # (Sem mudanças)
+        # (Função de Delete - Sem mudanças)
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
