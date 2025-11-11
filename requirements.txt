@@ -1,6 +1,9 @@
 gradio
-gunicorn
-psycopg2-binary
-uvicorn
 google-generativeai
 pydantic
+psycopg2-binary
+gunicorn
+uvicorn
+fastapi  # Adicionando por precaução (FastAPI)
+gspread  # <-- ADICIONADO DE VOLTA
+google-auth # <-- ADICIONADO DE VOLTA
