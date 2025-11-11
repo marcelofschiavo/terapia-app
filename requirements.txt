@@ -1,4 +1,6 @@
 gradio
+gunicorn
+psycopg2-binary
+uvicorn
 google-generativeai
 pydantic
-psycopg2-binary
