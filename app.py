@@ -1,11 +1,13 @@
-# app.py (Versão de Produção Estável)
+# app.py (Ativando o Sistema de Recados)
 import gradio as gr
 import os
 import time
 from services.ai_service import ai_service
 from services.db_service import db_service
 from models.schemas import CheckinContext, DrilldownRequest, CheckinFinal, GeminiResponse
-import pandas as pd
+# ... (outros imports) ...
+import pandas as pd # Mantido, pois o Gradio o puxa como dependência e facilita a conversão interna
+
 
 # --- Lista de Áreas (Alfabética) ---
 areas_de_vida = [
@@ -30,11 +32,9 @@ print(f"Lista de psicólogas carregada: {LISTA_DE_PSICOLOGAS_CHOICES}")
 
 
 # --- Funções de Lógica ---
-# (Todas as fn_login, fn_handle_role, fn_create_user - Sem mudanças)
-
+# (fn_toggle_signup_form, fn_login, fn_handle_role, fn_create_user - Sem mudanças)
 def fn_toggle_signup_form(is_novo_usuario_check):
     return gr.update(visible=is_novo_usuario_check), gr.update(visible=is_novo_usuario_check)
-
 def fn_login(username, password):
     if not username or not password:
         return None, gr.update(value="Usuário ou senha não podem estar em branco.", visible=True)
@@ -44,51 +44,42 @@ def fn_login(username, password):
         return user_data, gr.update(value="", visible=False)
     else:
         return None, gr.update(value="Login falhou. Verifique seu usuário e senha.", visible=True)
-
 def fn_handle_role(user_data, request: gr.Request):
     if not user_data: 
         return gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), \
                gr.update(value=""), gr.update(choices=LISTA_DE_PSICOLOGAS_CHOICES), gr.update(choices=LISTA_DE_PSICOLOGAS_CHOICES)
-
     role = user_data.get("role")
-    
     if role == "Paciente":
         psicologa_associada = user_data.get("psicologa_associada", "Nenhuma")
         print(f"Mostrando UI de Paciente para {user_data.get('username')}")
         return gr.update(visible=False), gr.update(visible=True), gr.update(visible=False), \
-               gr.update(value=psicologa_associada), gr.update(choices=[]), gr.update(choices=[])
-        
+               gr.update(value=psicologa_associada), gr.update(choices=[], value=None), gr.update(choices=[], value=None)
     elif role == "Psicóloga":
         print(f"Mostrando UI de Psicóloga para {user_data.get('username')}")
         lista_pacientes = db_service.get_pacientes_da_psicologa(user_data.get("username"))
         return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True), \
-               gr.update(value="N/A"), gr.update(choices=lista_pacientes), gr.update(choices=lista_pacientes)
-    
+               gr.update(value="N/A"), gr.update(choices=lista_pacientes, value=None), gr.update(choices=lista_pacientes, value=None)
     else: # Fallback
         return gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), \
                gr.update(value=""), gr.update(choices=LISTA_DE_PSICOLOGAS_CHOICES), gr.update(choices=LISTA_DE_PSICOLOGAS_CHOICES)
-
 def fn_create_user(username, password, psicologa_selecionada):
     success, message = db_service.create_user(username, password, psicologa_selecionada)
     return gr.update(value=message, visible=True)
 
-# --- Funções do Paciente (Sem mudanças) ---
+# --- Funções do Paciente (Sem mudanças no checkin) ---
 async def fn_get_suggestions_paciente(area, sentimento_float):
     try:
         contexto_data = CheckinContext(area=area, sentimento=sentimento_float)
         response_data = await ai_service.get_suggestions(contexto_data)
         sugestoes = response_data.get("sugestoes", [])
         return (
-            gr.update(choices=sugestoes, value=None, visible=True), 
-            gr.update(visible=True), gr.update(visible=False), 
-            gr.update(visible=False), gr.update(visible=False) 
+            gr.update(choices=sugestoes, value=None, visible=True), gr.update(visible=True), 
+            gr.update(visible=False), gr.update(visible=False), gr.update(visible=False) 
         )
     except Exception as e:
         print(f"Erro ao chamar ai_service.get_suggestions: {e}")
-        return (
-            gr.update(choices=[], value=None, visible=False), gr.update(visible=False),
-            gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
-        )
+        return (gr.update(choices=[], value=None, visible=False), gr.update(visible=False),
+            gr.update(visible=False), gr.update(visible=False), gr.update(visible=False))
 async def fn_get_drilldown_paciente(topicos_selecionados):
     if not topicos_selecionados:
         return gr.update(visible=False), gr.update(label="Meu Diário"), gr.update(value=None), gr.update(visible=False), gr.update(visible=False)
@@ -103,15 +94,11 @@ async def fn_get_drilldown_paciente(topicos_selecionados):
         return gr.update(visible=False), gr.update(label="Meu Diário"), gr.update(value=None), gr.update(visible=False), gr.update(visible=False)
 def fn_update_diario_from_outro(outro_topico_texto):
     if not outro_topico_texto:
-        return (
-            gr.update(visible=False), gr.update(label="Meu Diário"), 
-            gr.update(value=""), gr.update(visible=False), gr.update(visible=False)
-        )
+        return (gr.update(visible=False), gr.update(label="Meu Diário"), 
+            gr.update(value=""), gr.update(visible=False), gr.update(visible=False))
     markdown_text = "### Pontos-chave para detalhar:\n(Descreva seu tópico acima)"
-    return (
-        gr.update(visible=True), gr.update(label=f"Sobre: '{outro_topico_texto}'"),
-        gr.update(value=markdown_text), gr.update(visible=True), gr.update(visible=True)
-    )
+    return (gr.update(visible=True), gr.update(label=f"Sobre: '{outro_topico_texto}'"),
+        gr.update(value=markdown_text), gr.update(visible=True), gr.update(visible=True))
 async def fn_submit_checkin_paciente(user_data_do_state, area, sentimento_float, topicos_selecionados, outro_topico_texto, diaro_texto, compartilhado_bool):
     if not user_data_do_state or "username" not in user_data_do_state:
         return gr.update(value="### ❌ Erro: Usuário não autenticado.", visible=True), gr.update(visible=False)
@@ -188,6 +175,7 @@ def fn_load_history_paciente(user_data_do_state):
         print(f"Erro ao formatar coluna 'compartilhado': {e}")
     return gr.update(value=display_data, visible=True), gr.update(visible=False)
 def fn_load_recados_paciente(user_data_do_state):
+    # --- MUDANÇA: Ativa a função ---
     if not user_data_do_state: return gr.update(value=None), gr.update(value="Erro: Usuário não logado.", visible=True)
     paciente_id = user_data_do_state["username"]
     headers, recados = db_service.get_recados_paciente(paciente_id)
@@ -202,7 +190,7 @@ def fn_load_recados_paciente(user_data_do_state):
     display_data = [[row[i] for i in col_indices] for row in recados]
     return gr.update(value=display_data, visible=True), gr.update(visible=False)
 
-# --- Funções da Psicóloga ---
+# --- Funções da Psicóloga (Ativadas) ---
 def fn_load_history_psicologa(paciente_selecionado):
     if not paciente_selecionado or "Nenhum" in paciente_selecionado:
         return gr.update(value=None), gr.update(value="Por favor, selecione um paciente.", visible=True)
@@ -295,7 +283,7 @@ with gr.Blocks(
             
             in_signup_psicologa = gr.Dropdown(
                 label="Selecione sua Psicóloga",
-                choices=db_service.get_psicologas_list_for_signup(), 
+                choices=LISTA_DE_PSICOLOGAS_CHOICES, 
                 visible=False
             )
             
