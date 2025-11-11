@@ -1,11 +1,11 @@
-# app.py (Versão de Estabilidade e Resistência a Erros de Deploy)
+# app.py (Versão Mínima de Estabilidade)
 import gradio as gr
 import os
 import time
 from services.ai_service import ai_service
 from services.db_service import db_service
 from models.schemas import CheckinContext, DrilldownRequest, CheckinFinal, GeminiResponse
-# pandas não é mais importado
+# pandas e fastapi removidos
 
 # --- Lista de Áreas (Alfabética) ---
 areas_de_vida = [
@@ -30,60 +30,49 @@ print(f"Lista de psicólogas carregada: {LISTA_DE_PSICOLOGAS_CHOICES}")
 
 
 # --- Funções de Lógica ---
-# (As funções de submit e load history foram simplificadas para não dependerem do pandas)
 
 def fn_toggle_signup_form(is_novo_usuario_check):
     return gr.update(visible=is_novo_usuario_check), gr.update(visible=is_novo_usuario_check)
 
 def fn_login(username, password):
-    # (Sem mudanças)
     if not username or not password:
         return None, gr.update(value="Usuário ou senha não podem estar em branco.", visible=True)
     login_valido, role, psicologa_associada = db_service.check_user(username, password)
     if login_valido:
         user_data = {"username": username, "role": role, "psicologa_associada": psicologa_associada}
-        # Retorna o user_data e a mensagem de erro limpa
         return user_data, gr.update(value="", visible=False)
     else:
         return None, gr.update(value="Login falhou. Verifique seu usuário e senha.", visible=True)
 
-# --- FUNÇÃO CENTRAL DE ROTEAMENTO (Simplificada) ---
+# --- FUNÇÃO CENTRAL DE ROTEAMENTO (MÍNIMA) ---
 def fn_handle_role(user_data):
     """
-    Decide qual aba de perfil mostrar. Retorna o ID da Aba (0, 1 ou 2)
-    e a lista de pacientes (se for psicóloga).
+    Roteador Mínimo: Mostra apenas a tela de check-in se logado.
     """
     if not user_data: 
-        return gr.update(selected=0), gr.update(visible=False), gr.update(visible=False), \
-               gr.update(value=""), gr.update(choices=[]), gr.update(choices=[])
-
+        # Rota de Login/Logout (Mostra Login)
+        return gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), \
+               gr.update(value="")
+        
     role = user_data.get("role")
     
-    if role == "Paciente":
+    # Se logado (Psicóloga ou Paciente), mostra o Check-in
+    if role in ["Paciente", "Psicóloga"]:
         psicologa_associada = user_data.get("psicologa_associada", "Nenhuma")
-        print(f"Mostrando UI de Paciente para {user_data.get('username')}")
-        # Retorna o tab ID 1 (Paciente) e o nome da psicóloga
-        return gr.update(selected=1), gr.update(visible=True), gr.update(visible=False), \
-               gr.update(value=psicologa_associada), gr.update(choices=[]), gr.update(choices=[])
-        
-    elif role == "Psicóloga":
-        print(f"Mostrando UI de Psicóloga para {user_data.get('username')}")
-        lista_pacientes = db_service.get_pacientes_da_psicologa(user_data.get("username"))
-        # Retorna o tab ID 2 (Psicóloga) e a lista de pacientes
-        return gr.update(selected=2), gr.update(visible=False), gr.update(visible=True), \
-               gr.update(value="N/A"), gr.update(choices=lista_pacientes), gr.update(choices=lista_pacientes)
+        # Esconde Login, Mostra Paciente, Esconde Psicóloga (Visão de Checkin)
+        return gr.update(visible=False), gr.update(visible=True), gr.update(visible=False), \
+               gr.update(value=psicologa_associada)
     
     else: # Fallback (retorna para o Login)
-        return gr.update(selected=0), gr.update(visible=True), gr.update(visible=False), \
-               gr.update(value=""), gr.update(choices=[]), gr.update(choices=[])
+        return gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), \
+               gr.update(value="")
 
 def fn_create_user(username, password, psicologa_selecionada):
-    # (Sem mudanças)
     success, message = db_service.create_user(username, password, psicologa_selecionada)
     return gr.update(value=message, visible=True)
 
 
-# --- Funções do Paciente (Simplificadas) ---
+# --- Funções do Paciente (Mantidas) ---
 
 async def fn_get_suggestions_paciente(area, sentimento_float):
     try:
@@ -101,7 +90,6 @@ async def fn_get_suggestions_paciente(area, sentimento_float):
             gr.update(choices=[], value=None, visible=False), gr.update(visible=False),
             gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
         )
-
 async def fn_get_drilldown_paciente(topicos_selecionados):
     if not topicos_selecionados:
         return gr.update(visible=False), gr.update(label="Meu Diário"), gr.update(value=None), gr.update(visible=False), gr.update(visible=False)
@@ -114,7 +102,6 @@ async def fn_get_drilldown_paciente(topicos_selecionados):
         return gr.update(visible=True), gr.update(label=f"Sobre: '{primeiro_topico}'"), gr.update(value=markdown_text), gr.update(visible=True), gr.update(visible=True)
     except Exception as e:
         return gr.update(visible=False), gr.update(label="Meu Diário"), gr.update(value=None), gr.update(visible=False), gr.update(visible=False)
-
 def fn_update_diario_from_outro(outro_topico_texto):
     if not outro_topico_texto:
         return (
@@ -126,9 +113,7 @@ def fn_update_diario_from_outro(outro_topico_texto):
         gr.update(visible=True), gr.update(label=f"Sobre: '{outro_topico_texto}'"),
         gr.update(value=markdown_text), gr.update(visible=True), gr.update(visible=True)
     )
-
 async def fn_submit_checkin_paciente(user_data_do_state, area, sentimento_float, topicos_selecionados, outro_topico_texto, diaro_texto, compartilhado_bool):
-    # (Sem mudanças)
     if not user_data_do_state or "username" not in user_data_do_state:
         return gr.update(value="### ❌ Erro: Usuário não autenticado.", visible=True), gr.update(visible=False)
     paciente_id = user_data_do_state["username"]
@@ -167,15 +152,11 @@ async def fn_submit_checkin_paciente(user_data_do_state, area, sentimento_float,
     except Exception as e:
         print(f"Erro no fn_submit_checkin: {e}")
         return gr.update(value=f"Erro ao processar o check-in: {e}", visible=True), gr.update(visible=False)
-
 def fn_delete_last_record_paciente(user_data_do_state):
-    # (Sem mudanças)
     if not user_data_do_state: return gr.update(visible=False), gr.update(value="Erro: Usuário não logado.")
     paciente_id = user_data_do_state["username"]
     db_service.delete_last_record(paciente_id)
     return gr.update(visible=False), gr.update(value="### ✅ Registro descartado com sucesso.", visible=True)
-
-# --- FUNÇÃO ATUALIZADA (SEM PANDAS) ---
 def fn_load_history_paciente(user_data_do_state):
     if not user_data_do_state: return gr.update(value=None), gr.update(value="Erro: Usuário não logado.", visible=True)
     paciente_id = user_data_do_state["username"]
@@ -207,9 +188,7 @@ def fn_load_history_paciente(user_data_do_state):
     except Exception as e:
         print(f"Erro ao formatar coluna 'compartilhado': {e}")
     return gr.update(value=display_data, visible=True), gr.update(visible=False)
-
 def fn_load_recados_paciente(user_data_do_state):
-    # (Sem mudanças)
     if not user_data_do_state: return gr.update(value=None), gr.update(value="Erro: Usuário não logado.", visible=True)
     paciente_id = user_data_do_state["username"]
     headers, recados = db_service.get_recados_paciente(paciente_id)
@@ -226,7 +205,6 @@ def fn_load_recados_paciente(user_data_do_state):
 
 # --- Funções da Psicóloga ---
 def fn_load_history_psicologa(paciente_selecionado):
-    # (Sem mudanças)
     if not paciente_selecionado or "Nenhum" in paciente_selecionado:
         return gr.update(value=None), gr.update(value="Por favor, selecione um paciente.", visible=True)
     print(f"Psicóloga carregando histórico de: {paciente_selecionado}")
@@ -257,7 +235,6 @@ def fn_load_history_psicologa(paciente_selecionado):
     return gr.update(value=display_data, visible=True), gr.update(visible=False)
 
 def fn_load_ultimo_diario_psicologa(paciente_selecionado):
-    # (Sem mudanças)
     if not paciente_selecionado or "Nenhum" in paciente_selecionado:
         return gr.update(value=""), gr.update(value="Selecione um paciente para carregar o diário.", visible=True)
     diario, msg = db_service.get_ultimo_diario_paciente(paciente_selecionado)
@@ -266,7 +243,6 @@ def fn_load_ultimo_diario_psicologa(paciente_selecionado):
     return gr.update(value=diario), gr.update(visible=False)
 
 async def fn_gerar_sugestao_recado_psicologa(diario_do_paciente, rascunho_atual):
-    # (Sem mudanças)
     if not diario_do_paciente:
         return gr.update(value="Carregue o diário do paciente primeiro.")
     try:
@@ -278,7 +254,6 @@ async def fn_gerar_sugestao_recado_psicologa(diario_do_paciente, rascunho_atual)
         return gr.update(value=f"Erro: {e}")
 
 def fn_send_recado_psicologa(user_data_do_state, paciente_selecionado, mensagem_texto):
-    # (Sem mudanças)
     if not user_data_do_state or "username" not in user_data_do_state:
         return gr.update(value="Erro: Usuário não autenticado.", visible=True)
     if not paciente_selecionado or "Nenhum" in paciente_selecionado:
@@ -293,7 +268,6 @@ def fn_send_recado_psicologa(user_data_do_state, paciente_selecionado, mensagem_
         return gr.update(value=f"Erro: {message}", visible=True)
 
 def get_tableau_html():
-    # (Sem mudanças)
     tableau_url = "https://public.tableau.com/views/RegionalSampleWorkbook/Storms"
     html_embed = f"""
     <iframe src="{tableau_url}?:showVizHome=no&:embed=true"
@@ -320,7 +294,7 @@ with gr.Blocks(
             btn_login = gr.Button("Entrar", variant="primary")
             chk_novo_usuario = gr.Checkbox(label="Sou novo usuário", value=False)
             
-            # --- MUDANÇA: Passa a lista estática ---
+            # --- CORREÇÃO: Passa a lista estática ---
             in_signup_psicologa = gr.Dropdown(
                 label="Selecione sua Psicóloga",
                 choices=db_service.get_psicologas_list_for_signup(), 
@@ -545,5 +519,6 @@ with gr.Blocks(
     )
 
 # --- Lançar a Aplicação ---
+# MUDANÇA: O 'app' aqui é o objeto 'gr.Blocks'
 if __name__ == "__main__":
     app.launch(debug=True)
