@@ -5,7 +5,7 @@ import time
 from services.ai_service import ai_service
 from services.db_service import db_service
 from models.schemas import CheckinContext, DrilldownRequest, CheckinFinal, GeminiResponse
-# from fastapi import UploadFile # <-- REMOVIDO
+from fastapi import UploadFile # (Simulação)
 # import pandas as pd # <-- REMOVIDO
 
 # --- Lista de Áreas (Alfabética) ---
@@ -107,6 +107,10 @@ def fn_update_diario_from_outro(outro_topico_texto):
         gr.update(visible=True), gr.update(label=f"Sobre: '{outro_topico_texto}'"),
         gr.update(value=markdown_text), gr.update(visible=True), gr.update(visible=True)
     )
+
+# --- FUNÇÃO REMOVIDA (Áudio) ---
+# async def fn_transcribe_paciente(audio_filepath, diaro_atual): ...
+
 async def fn_submit_checkin_paciente(user_data_do_state, area, sentimento_float, topicos_selecionados, outro_topico_texto, diaro_texto, compartilhado_bool):
     # (Sem mudanças)
     if not user_data_do_state or "username" not in user_data_do_state:
@@ -169,24 +173,35 @@ def fn_load_history_paciente(user_data_do_state):
     if not user_history:
         return gr.update(value=None), gr.update(value="Nenhum histórico encontrado para este usuário.", visible=True)
     user_history.reverse()
-    colunas_db = ['timestamp', 'area', 'sentimento', 'topicos_selecionados', 'diario_texto', 'insight_ia', 'acao_proposta', 'sentimento_texto', 'temas_gemini', 'resumo_psicologa', 'psicologa_id', 'compartilhado']
-    colunas_display = ["Data", "Área", "Nota (1-5)", "Tópicos Selecionados", "Meu Diário", "Insight", "Ação", "Sentimento (IA)", "Temas (IA)", "Resumo", "Psicóloga", "Compartilhado?"]
+    
+    colunas_db = [
+        'timestamp', 'area', 'sentimento', 'topicos_selecionados', 
+        'diario_texto', 'insight_ia', 'acao_proposta', 
+        'sentimento_texto', 'temas_gemini', 'resumo_psicologa', 
+        'psicologa_id', 'compartilhado'
+    ]
+    # (Cabeçalhos para o 'gr.Dataframe' estão na UI)
+    
     try:
         col_indices = [headers.index(col) for col in colunas_db]
     except ValueError as e:
         return gr.update(value=None), gr.update(value=f"Erro: A coluna {e} não foi encontrada.", visible=True)
+        
     display_data = [[row[i] for i in col_indices] for row in user_history[:20]]
+    
     try:
-        compartilhado_index = colunas_display.index('Compartilhado?')
+        # Pega o índice pela lista 'colunas_db'
+        compartilhado_index = colunas_db.index('compartilhado') 
         for row in display_data:
-            if row[compartilhado_index]: # Booleano
+            # Converte booleano (True/False) para emoji
+            if row[compartilhado_index]: 
                 row[compartilhado_index] = "✅ Sim"
             else:
                 row[compartilhado_index] = "❌ Não"
     except Exception as e:
         print(f"Erro ao formatar coluna 'compartilhado': {e}")
-    
-    # --- MUDANÇA: Retorna dados puros (lista de listas) + headers ---
+        
+    # --- MUDANÇA: Retorna dados puros (lista de listas) ---
     return gr.update(value=display_data, visible=True), gr.update(visible=False)
 
 # --- FUNÇÃO ATUALIZADA (SEM PANDAS) ---
@@ -196,12 +211,15 @@ def fn_load_recados_paciente(user_data_do_state):
     headers, recados = db_service.get_recados_paciente(paciente_id)
     if not recados:
         return gr.update(value=None), gr.update(value="Nenhum recado encontrado.", visible=True)
+    
     colunas_db = ['timestamp', 'psicologa_id', 'mensagem_texto']
-    # colunas_display = ["Data", "De", "Mensagem"] # (Definido nos headers do DataFrame)
+    # (Cabeçalhos para o 'gr.Dataframe' estão na UI)
+    
     try:
         col_indices = [headers.index(col) for col in colunas_db]
     except ValueError as e:
         return gr.update(value=None), gr.update(value=f"Erro: A coluna {e} não foi encontrada.", visible=True)
+        
     display_data = [[row[i] for i in col_indices] for row in recados]
     
     # --- MUDANÇA: Retorna dados puros (lista de listas) ---
@@ -209,6 +227,7 @@ def fn_load_recados_paciente(user_data_do_state):
 
 
 # --- Funções da Psicóloga ---
+
 # --- FUNÇÃO ATUALIZADA (SEM PANDAS) ---
 def fn_load_history_psicologa(paciente_selecionado):
     if not paciente_selecionado or "Nenhum" in paciente_selecionado:
@@ -217,11 +236,13 @@ def fn_load_history_psicologa(paciente_selecionado):
     headers, all_rows = db_service.get_all_checkin_data()
     if not headers:
         return gr.update(value=None), gr.update(value="Nenhum dado encontrado.", visible=True)
+    
     try:
         id_col_index = headers.index('paciente_id')
         share_col_index = headers.index('compartilhado')
     except ValueError as e:
         return gr.update(value=None), gr.update(value=f"Erro: A coluna {e} não foi encontrada.", visible=True)
+        
     paciente_history = [
         row for row in all_rows 
         if len(row) > id_col_index and len(row) > share_col_index
@@ -230,13 +251,17 @@ def fn_load_history_psicologa(paciente_selecionado):
     ]
     if not paciente_history:
         return gr.update(value=None), gr.update(value=f"Nenhum registro *compartilhado* encontrado para {paciente_selecionado}.", visible=True)
+    
     paciente_history.reverse()
+    
     colunas_db = ['timestamp', 'area', 'sentimento', 'topicos_selecionados', 'diario_texto', 'sentimento_texto', 'temas_gemini', 'resumo_psicologa']
-    # colunas_display = ["Data", "Área", "Nota (1-5)", "Tópicos", "Diário do Paciente", "Sentimento (IA)", "Temas (IA)", "Resumo (IA)"]
+    # (Cabeçalhos para o 'gr.Dataframe' estão na UI)
+    
     try:
         col_indices = [headers.index(col) for col in colunas_db]
     except ValueError as e:
         return gr.update(value=None), gr.update(value=f"Erro: A coluna {e} não foi encontrada.", visible=True)
+        
     display_data = [[row[i] for i in col_indices] for row in paciente_history[:50]]
     
     # --- MUDANÇA: Retorna dados puros (lista de listas) ---
@@ -280,7 +305,7 @@ def fn_send_recado_psicologa(user_data_do_state, paciente_selecionado, mensagem_
 
 def get_tableau_html():
     # (Sem mudanças)
-    tableau_url = "https://public.tableau.com/views/RegionalSampleWorkbook/Storms" # URL de Exemplo
+    tableau_url = "https://public.tableau.com/views/RegionalSampleWorkbook/Storms"
     html_embed = f"""
     <iframe src="{tableau_url}?:showVizHome=no&:embed=true"
             width="100%" height="800px" frameborder="0" 
@@ -329,7 +354,7 @@ with gr.Blocks(
                         out_sugestoes_paciente = gr.CheckboxGroup(label="O que aconteceu? (IA Nível 1)", visible=False)
                         in_outro_topico_paciente = gr.Textbox(label="Outro tópico (opcional)", visible=False)
                 
-                # --- MUDANÇA: Áudio Removido ---
+                # --- MUDANÇA: Áudio removido ---
                 with gr.Row(visible=False) as components_n3_paciente:
                     with gr.Column(scale=2):
                         in_diario_texto_paciente = gr.Textbox(label="Meu Diário", lines=8, visible=True, placeholder="Descreva o que aconteceu...")
@@ -347,7 +372,7 @@ with gr.Blocks(
                 btn_load_history_paciente = gr.Button("Carregar meu histórico")
                 out_history_message_paciente = gr.Markdown(visible=False)
                 # --- MUDANÇA: Define os cabeçalhos do DataFrame ---
-                out_history_df_paciente = gr.DataFrame(
+                out_history_df_paciente = gr.Dataframe( # <-- MUDANÇA (componente mais novo)
                     label="Seus Registros", 
                     visible=False, 
                     wrap=True,
@@ -364,7 +389,7 @@ with gr.Blocks(
                 btn_load_recados_paciente = gr.Button("Verificar novos recados")
                 out_recados_message_paciente = gr.Markdown(visible=False)
                 # --- MUDANÇA: Define os cabeçalhos do DataFrame ---
-                out_recados_df_paciente = gr.DataFrame(
+                out_recados_df_paciente = gr.Dataframe( # <-- MUDANÇA (componente mais novo)
                     label="Seus Recados", 
                     visible=False, 
                     wrap=True,
@@ -385,7 +410,7 @@ with gr.Blocks(
                 btn_load_history_psicologa = gr.Button("Carregar Histórico do Paciente")
                 out_history_message_psicologa = gr.Markdown(visible=False)
                 # --- MUDANÇA: Define os cabeçalhos do DataFrame ---
-                out_history_df_psicologa = gr.DataFrame(
+                out_history_df_psicologa = gr.Dataframe( # <-- MUDANÇA (componente mais novo)
                     label="Registros do Paciente", 
                     visible=False, 
                     wrap=True,

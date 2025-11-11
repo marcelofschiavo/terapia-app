@@ -1,10 +1,6 @@
-# requirements.txt
 gradio
 google-generativeai
 pydantic
 fastapi
 psycopg2-binary
 gunicorn
-pandas
-transformers
-torch

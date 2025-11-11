@@ -1,34 +1,26 @@
-# services/ai_service.py
+# services/ai_service.py (Versão Leve)
 import os
 import json
-from transformers import pipeline # <-- ADICIONADO DE VOLTA
+# from transformers import pipeline # <-- REMOVIDO
 import google.generativeai as genai
 from models.schemas import CheckinContext, DrilldownRequest, CheckinFinal, GeminiResponse
-from fastapi import UploadFile
+# from fastapi import UploadFile # <-- REMOVIDO
 
 """
-(Versão Completa) 
-1. Whisper (tiny) REATIVADO.
-2. Prompts do Gemini (sem contexto, sugestões curtas, etc.) mantidos.
+(Atualizado) 
+1. REMOVIDO o Whisper (transformers) para deixar o app mais leve.
 """
 
 class AIService:
     def __init__(self):
         print("Carregando serviços de IA...")
-        self.transcriber = self._load_whisper() # <-- REATIVADO
+        # self.transcriber = self._load_whisper() # <-- REMOVIDO
+        self.transcriber = None
         self.gemini_model = self._load_gemini()
 
     def _load_whisper(self):
-        # --- FUNÇÃO REATIVADA ---
-        try:
-            print("Carregando modelo de transcrição (Whisper)...")
-            # Usando 'tiny' que é leve e funciona na sua GPU
-            model = pipeline("automatic-speech-recognition", model="openai/whisper-tiny")
-            print("Modelo de transcrição (tiny) carregado.")
-            return model
-        except Exception as e:
-            print(f"Erro ao carregar Whisper: {e}")
-            return None
+        # --- FUNÇÃO REMOVIDA ---
+        pass
 
     def _load_gemini(self):
         # (Sem mudanças)
@@ -91,21 +83,10 @@ class AIService:
             print(f"Erro ao chamar Gemini (Nível 2): {e}")
             return {"perguntas": ["Pode detalhar mais?", "Como você se sentiu?"]}
 
-    async def transcribe_audio(self, file: UploadFile):
-        # --- FUNÇÃO REATIVADA ---
-        if not self.transcriber: 
-            print("Erro: Modelo Whisper não carregado.")
-            return {"transcricao": "[Modelo de áudio não carregado]"}
-            
-        audio_bytes = await file.read()
-        try:
-            resultado = self.transcriber(audio_bytes)
-            transcricao = resultado.get("text", "").strip().strip('"')
-            print(f"Transcrição concluída: {transcricao}")
-            return {"transcricao": transcricao}
-        except Exception as e:
-            print(f"Erro na transcrição: {e}")
-            return {"transcricao": f"[Erro ao processar áudio: {e}]"}
+    async def transcribe_audio(self, file): # <-- 'UploadFile' removido
+        # --- FUNÇÃO ATUALIZADA (Placeholder) ---
+        print("A função de transcrição de áudio foi desativada.")
+        return {"transcricao": "[Áudio desativado]"}
 
     async def process_final_checkin(self, checkin_data: CheckinFinal, diario_para_analise: str) -> GeminiResponse:
         # (Sem mudanças)
@@ -113,7 +94,7 @@ class AIService:
         if not diario_para_analise: 
             return GeminiResponse(
                 insight="Seu check-in de sentimento foi salvo.",
-                acao="Na próxima vez, tente escrever um diário ou gravar um áudio para receber mais insights."
+                acao="Na próxima vez, tente escrever um diário para receber mais insights."
             )
         prompt_final = f"""
         Contexto Psicológico:
