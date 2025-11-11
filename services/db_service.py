@@ -1,4 +1,4 @@
-# services/db_service.py (Corrigido o cache e a chamada de check_user)
+# services/db_service.py (Com Lógica de Busca de Histórico para a Psicóloga)
 import psycopg2
 from psycopg2 import sql
 from contextlib import contextmanager
@@ -11,8 +11,9 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 
 @contextmanager
 def get_db_connection():
+    """Função 'helper' para conectar e fechar o banco de dados com segurança."""
     if not DATABASE_URL:
-        raise ValueError("DATABASE_URL não foi definida.")
+        raise ValueError("DATABASE_URL não foi definida. Exporte a variável de ambiente.")
     conn = psycopg2.connect(DATABASE_URL)
     try:
         yield conn
@@ -66,7 +67,7 @@ class DBService:
         try:
             for row in self.all_users_data:
                 if len(row) > 3 and row[2] == "Paciente" and row[3] == psicologa_username:
-                    pacientes.append(row[0])
+                    pacientes.append(row[0]) 
             if not pacientes:
                 return ["Nenhum paciente vinculado a você"]
             return pacientes
@@ -74,23 +75,114 @@ class DBService:
             print(f"Erro ao buscar pacientes: {e}")
             return [f"Erro ao buscar pacientes: {e}"]
 
-    # --- FUNÇÃO CORRIGIDA (Adiciona o cache local) ---
     def check_user(self, username, password):
-        """Verifica usuário/senha usando o cache local na memória."""
+        # (Sem mudanças)
         try:
-            # Col 0 = user, Col 1 = pass, Col 2 = role, Col 3 = psicologa
             for row in self.all_users_data:
                 if row and len(row) > 3 and row[0] == username and row[1] == password:
                     role = row[2] 
                     psicologa_associada = row[3] if role == "Paciente" else None
+                    print(f"Login SQL bem-sucedido para: {username}, Role: {role}")
                     return True, role, psicologa_associada
-            
+            print(f"Login SQL falhou para: {username}")
             return False, None, None
         except Exception as e:
             print(f"Erro ao checar usuário: {e}")
             return False, None, None
-            
-    # (Resto das funções omitidas para brevidade, mas devem permanecer no arquivo)
+
+    def create_user(self, username, password, psicologa_selecionada):
+        # (Sem mudanças)
+        if not username or not password or len(username) < 3 or len(password) < 3:
+            return False, "Usuário e senha devem ter pelo menos 3 caracteres."
+        if not psicologa_selecionada or psicologa_selecionada == "Nenhuma psicóloga encontrada":
+            return False, "Por favor, selecione uma psicóloga da lista."
+        try:
+            with get_db_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO usuarios (username, password_hash, role, psicologa_associada) VALUES (%s, %s, %s, %s)",
+                        (username, password, "Paciente", psicologa_selecionada)
+                    )
+                    conn.commit()
+                    self.all_users_data.append((username, password, "Paciente", psicologa_selecionada))
+                    if psicologa_selecionada not in self.psicologas_list:
+                         self.psicologas_list = self.get_psicologas_list_for_signup()
+                    print(f"Novo usuário 'Paciente' criado: {username}, vinculado a {psicologa_selecionada}")
+                    return True, f"Paciente de usuário '{username}' criado com sucesso! Agora você pode fazer o login."
+        except psycopg2.errors.UniqueViolation:
+            return False, "Esse nome de usuário já existe. Tente outro."
+        except Exception as e:
+            print(f"Erro ao criar usuário: {e}")
+            return False, f"Erro no servidor ao tentar criar usuário: {e}"
+
+    def write_checkin(self, checkin: CheckinFinal, gemini_data: GeminiResponse, paciente_id: str, psicologa_id: str, compartilhado: bool):
+        # (Sem mudanças)
+        try:
+            with get_db_connection() as conn:
+                with conn.cursor() as cur:
+                    topicos_str = ", ".join(checkin.topicos_selecionados)
+                    temas_gemini_str = ", ".join(gemini_data.temas)
+                    cur.execute(
+                        """
+                        INSERT INTO checkins (
+                            area, sentimento, topicos_selecionados, diario_texto, 
+                            insight_ia, acao_proposta, sentimento_texto, temas_gemini, 
+                            resumo_psicologa, compartilhado, paciente_id, psicologa_id
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            checkin.area, checkin.sentimento, topicos_str, checkin.diario_texto,
+                            gemini_data.insight, gemini_data.acao, gemini_data.sentimento_texto,
+                            temas_gemini_str, gemini_data.resumo, compartilhado,
+                            paciente_id, psicologa_id
+                        )
+                    )
+                    conn.commit()
+                    print(f"Dados de '{paciente_id}' (Psic: {psicologa_id}) salvos no SQL. Compartilhado: {compartilhado}")
+        except Exception as e:
+            print(f"Erro ao escrever no SQL (checkin): {e}")
+            raise
+
+    def get_all_checkin_data(self):
+        # (Sem mudanças)
+        try:
+            with get_db_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT * FROM checkins")
+                    rows = cur.fetchall()
+                    headers = [desc[0] for desc in cur.description]
+                    return headers, rows if rows else ([], [])
+        except Exception as e:
+            print(f"Erro ao ler o histórico: {e}")
+            return [], []
+
+    # --- FUNÇÃO ATUALIZADA (Busca dados para o Histórico da Psicóloga) ---
+    def get_paciente_checkin_history(self, paciente_id: str, shared_only: bool = False):
+        """Busca o histórico de check-ins de um paciente, com opção de filtrar por compartilhado."""
+        try:
+            with get_db_connection() as conn:
+                with conn.cursor() as cur:
+                    
+                    base_query = """
+                    SELECT * FROM checkins 
+                    WHERE paciente_id = %s 
+                    """
+                    params = [paciente_id]
+                    
+                    if shared_only:
+                        base_query += " AND compartilhado = TRUE "
+                        
+                    base_query += " ORDER BY timestamp DESC LIMIT 50"
+                    
+                    cur.execute(base_query, params)
+                    rows = cur.fetchall()
+                    headers = [desc[0] for desc in cur.description]
+                    return headers, rows if rows else ([], [])
+        except Exception as e:
+            print(f"Erro ao buscar histórico do paciente: {e}")
+            return [], []
+
+    # (Funções de recado e delete omitidas para brevidade, mas permanecem no arquivo)
 
 # Cria uma instância única
 db_service = DBService()

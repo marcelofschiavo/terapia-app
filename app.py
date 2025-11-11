@@ -1,11 +1,10 @@
-# app.py (Corrigido o Valor de Retorno da fn_handle_role)
+# app.py (Versão de Produção Estável)
 import gradio as gr
 import os
 import time
 from services.ai_service import ai_service
 from services.db_service import db_service
 from models.schemas import CheckinContext, DrilldownRequest, CheckinFinal, GeminiResponse
-from fastapi import UploadFile # (Simulação)
 import pandas as pd
 
 # --- Lista de Áreas (Alfabética) ---
@@ -31,13 +30,12 @@ print(f"Lista de psicólogas carregada: {LISTA_DE_PSICOLOGAS_CHOICES}")
 
 
 # --- Funções de Lógica ---
+# (Todas as fn_login, fn_handle_role, fn_create_user - Sem mudanças)
 
 def fn_toggle_signup_form(is_novo_usuario_check):
-    # (Sem mudanças)
     return gr.update(visible=is_novo_usuario_check), gr.update(visible=is_novo_usuario_check)
 
 def fn_login(username, password):
-    # (Sem mudanças)
     if not username or not password:
         return None, gr.update(value="Usuário ou senha não podem estar em branco.", visible=True)
     login_valido, role, psicologa_associada = db_service.check_user(username, password)
@@ -47,14 +45,8 @@ def fn_login(username, password):
     else:
         return None, gr.update(value="Login falhou. Verifique seu usuário e senha.", visible=True)
 
-# --- FUNÇÃO CORRIGIDA (Garantindo 6 Outputs em TODAS as Rotas) ---
-def fn_handle_role(user_data):
-    """
-    Função roteadora que decide qual UI (Row) mostrar.
-    Saídas: [login_view, paciente_view, psicologa_view, in_psicologa_nome, hist_dropdown, reg_dropdown]
-    """
+def fn_handle_role(user_data, request: gr.Request):
     if not user_data: 
-        # 1. Rota de Logout/Não Logado
         return gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), \
                gr.update(value=""), gr.update(choices=LISTA_DE_PSICOLOGAS_CHOICES), gr.update(choices=LISTA_DE_PSICOLOGAS_CHOICES)
 
@@ -63,27 +55,24 @@ def fn_handle_role(user_data):
     if role == "Paciente":
         psicologa_associada = user_data.get("psicologa_associada", "Nenhuma")
         print(f"Mostrando UI de Paciente para {user_data.get('username')}")
-        # 2. Rota do Paciente: Retorna 6 valores
         return gr.update(visible=False), gr.update(visible=True), gr.update(visible=False), \
-               gr.update(value=psicologa_associada), gr.update(choices=[], value=None), gr.update(choices=[], value=None)
+               gr.update(value=psicologa_associada), gr.update(choices=[]), gr.update(choices=[])
         
     elif role == "Psicóloga":
         print(f"Mostrando UI de Psicóloga para {user_data.get('username')}")
         lista_pacientes = db_service.get_pacientes_da_psicologa(user_data.get("username"))
-        # 3. Rota da Psicóloga: Retorna 6 valores
         return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True), \
-               gr.update(value="N/A"), gr.update(choices=lista_pacientes, value=None), gr.update(choices=lista_pacientes, value=None)
+               gr.update(value="N/A"), gr.update(choices=lista_pacientes), gr.update(choices=lista_pacientes)
     
-    else: # Fallback (retorna para o Login)
+    else: # Fallback
         return gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), \
                gr.update(value=""), gr.update(choices=LISTA_DE_PSICOLOGAS_CHOICES), gr.update(choices=LISTA_DE_PSICOLOGAS_CHOICES)
 
 def fn_create_user(username, password, psicologa_selecionada):
-    # (Sem mudanças)
     success, message = db_service.create_user(username, password, psicologa_selecionada)
     return gr.update(value=message, visible=True)
 
-# --- Funções do Paciente (Sem mudanças, exceto a remoção do Pandas) ---
+# --- Funções do Paciente (Sem mudanças) ---
 async def fn_get_suggestions_paciente(area, sentimento_float):
     try:
         contexto_data = CheckinContext(area=area, sentimento=sentimento_float)
