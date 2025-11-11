@@ -1,4 +1,4 @@
-# services/db_service.py (Versão COMPLETA e CORRIGIDA)
+# services/db_service.py (Versão Completa e Funcional)
 import psycopg2
 from psycopg2 import sql
 from contextlib import contextmanager
@@ -136,27 +136,6 @@ class DBService:
             print(f"Erro ao escrever no SQL (checkin): {e}")
             raise
 
-    # --- FUNÇÃO SEND_RECADO (NOVA) ---
-    def send_recado(self, psicologa_id: str, paciente_id: str, mensagem_texto: str):
-        """Envia um recado da psicóloga para o paciente."""
-        try:
-            with get_db_connection() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        INSERT INTO recados (psicologa_id, paciente_id, mensagem_texto) 
-                        VALUES (%s, %s, %s)
-                        """,
-                        (psicologa_id, paciente_id, mensagem_texto)
-                    )
-                    conn.commit()
-                    print(f"Recado enviado por {psicologa_id} para {paciente_id}.")
-                    return True, f"Recado enviado com sucesso para {paciente_id}!"
-        except Exception as e:
-            print(f"Erro ao enviar recado: {e}")
-            return False, f"Erro no servidor ao enviar recado: {e}"
-
-
     def get_all_checkin_data(self):
         try:
             with get_db_connection() as conn:
@@ -169,6 +148,7 @@ class DBService:
             print(f"Erro ao ler o histórico: {e}")
             return [], []
 
+    # --- FUNÇÃO ATIVADA (CORRIGINDO O ERRO) ---
     def get_recados_paciente(self, paciente_id: str):
         """Busca todos os recados para um paciente."""
         try:
@@ -185,6 +165,7 @@ class DBService:
             print(f"Erro ao ler recados: {e}")
             return [], []
 
+    # --- FUNÇÃO ATIVADA (CORRIGINDO O ERRO) ---
     def get_ultimo_diario_paciente(self, paciente_id: str):
         """Busca o último diário COMPARTILHADO de um paciente."""
         try:
@@ -209,7 +190,27 @@ class DBService:
             print(f"Erro ao buscar último diário: {e}")
             return None, f"Erro ao buscar diário: {e}"
 
+    def send_recado(self, psicologa_id: str, paciente_id: str, mensagem_texto: str):
+        """Envia um recado da psicóloga para o paciente."""
+        try:
+            with get_db_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO recados (psicologa_id, paciente_id, mensagem_texto) 
+                        VALUES (%s, %s, %s)
+                        """,
+                        (psicologa_id, paciente_id, mensagem_texto)
+                    )
+                    conn.commit()
+                    print(f"Recado enviado por {psicologa_id} para {paciente_id}.")
+                    return True, f"Recado enviado com sucesso para {paciente_id}!"
+        except Exception as e:
+            print(f"Erro ao enviar recado: {e}")
+            return False, f"Erro no servidor ao enviar recado: {e}"
+
     def delete_last_record(self, paciente_id: str):
+        # (Sem mudanças)
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
