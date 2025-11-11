@@ -2,7 +2,6 @@
 import gradio as gr
 import os
 import time
-# Apenas os imports essenciais para o login e a base
 from services.db_service import db_service 
 from models.schemas import CheckinFinal, GeminiResponse 
 
@@ -15,19 +14,22 @@ print(f"Lista de psicólogas carregada: {LISTA_DE_PSICOLOGAS_CHOICES}")
 
 # --- Funções de Lógica Mínima ---
 
+# --- FUNÇÃO CORRIGIDA ---
 def fn_login_minimo(username, password):
     """Função de teste de login que só retorna uma string de status."""
+    
+    # Se o DB não carregou
+    if "ERRO NO DB" in LISTA_DE_PSICOLOGAS_CHOICES:
+        return "❌ Erro na Conexão SQL. Verifique logs do Render/DB!", gr.update(visible=True)
     
     # 1. Checa o DB (Teste de conexão SQL e credenciais)
     login_valido, role, psicologa_associada = db_service.check_user(username, password)
     
+    # 2. Roteador Mínimo
     if login_valido:
-        # Se for válido, retorna o nome do usuário e a função
-        return f"✅ Login bem-sucedido. Usuário: {username}. Perfil: {role}. Conexão SQL OK."
-    elif "ERRO" in LISTA_DE_PSICOLOGAS_CHOICES[0]:
-         return "❌ Erro na Conexão SQL. Verifique logs do Render/DB!"
+        return f"✅ Login bem-sucedido. Usuário: {username}. Perfil: {role}.", gr.update(visible=True)
     else:
-        return "❌ Login falhou. Credenciais inválidas."
+        return "❌ Login falhou. Credenciais inválidas.", gr.update(visible=True)
 
 # --- Interface Gráfica (Gradio Blocks) ---
 with gr.Blocks(
@@ -36,7 +38,7 @@ with gr.Blocks(
 ) as app: 
     
     gr.Markdown("# 🧠 Teste de Inicialização (Render)")
-    gr.Markdown("Se este app iniciar, significa que o Gunicorn/Gradio/SQL estão sincronizados.")
+    gr.Markdown("Este é o seu 'Hello World'. Se você vir a lista de psicólogas, o SQL está OK.")
     
     with gr.Row():
         with gr.Column(): 
@@ -45,7 +47,7 @@ with gr.Blocks(
             in_login_password = gr.Textbox(label="Senha", type="password", placeholder="Ex: senha_da_ana")
             btn_login = gr.Button("Testar Conexão e Login", variant="primary")
             
-            # Resultado do teste de inicialização
+            # Mostra o status do DB
             gr.Textbox(
                 label="Status de Inicialização do DB",
                 value=f"Lista de Psicólogas Carregada: {LISTA_DE_PSICOLOGAS_CHOICES}",
@@ -59,11 +61,9 @@ with gr.Blocks(
     btn_login.click(
         fn=fn_login_minimo,
         inputs=[in_login_username, in_login_password],
-        outputs=[out_login_message]
+        outputs=[out_login_message, out_login_message] # Repete o output para não quebrar
     )
 
 # --- Lançar a Aplicação ---
 if __name__ == "__main__":
-    # O Gradio é um aplicativo FastAPI disfarçado. 
-    # Ele inicia o servidor uvicorn interno e expõe o aplicativo.
-    app.launch(server_name="0.0.0.0", server_port=10000)
+    app.launch(debug=True)
