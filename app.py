@@ -1,4 +1,4 @@
-# app.py (Corrigido o NameError de escopo)
+# app.py (Corrigido o NameError final na inicialização)
 import gradio as gr
 import os
 import time
@@ -26,8 +26,8 @@ areas_de_vida = [
 
 # --- Variável Global: Lista de Psicólogas ---
 print("Carregando lista de psicólogas (na inicialização)...")
-LISTA_DE_PSICOLOGAS = db_service.get_psicologas_list_for_signup() 
-print(f"Lista de psicólogas carregada: {LISTA_DE_PSICOLOGAS}")
+LISTA_DE_PSICOLOGAS_CHOICES = db_service.get_psicologas_list_for_signup() 
+print(f"Lista de psicólogas carregada: {LISTA_DE_PSICOLOGAS_CHOICES}")
 
 
 # --- Funções de Lógica ---
@@ -48,7 +48,7 @@ def fn_login(username, password):
 def fn_handle_role(user_data, request: gr.Request):
     if not user_data: 
         return gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), \
-               gr.update(value=""), gr.update(choices=LISTA_DE_PSICOLOGAS), gr.update(choices=LISTA_DE_PSICOLOGAS)
+               gr.update(value=""), gr.update(choices=LISTA_DE_PSICOLOGAS_CHOICES), gr.update(choices=LISTA_DE_PSICOLOGAS_CHOICES)
 
     role = user_data.get("role")
     
@@ -66,7 +66,7 @@ def fn_handle_role(user_data, request: gr.Request):
     
     else: # Fallback
         return gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), \
-               gr.update(value=""), gr.update(choices=LISTA_DE_PSICOLOGAS), gr.update(choices=LISTA_DE_PSICOLOGAS)
+               gr.update(value=""), gr.update(choices=LISTA_DE_PSICOLOGAS_CHOICES), gr.update(choices=LISTA_DE_PSICOLOGAS_CHOICES)
 
 def fn_create_user(username, password, psicologa_selecionada):
     success, message = db_service.create_user(username, password, psicologa_selecionada)
@@ -100,7 +100,6 @@ async def fn_get_drilldown_paciente(topicos_selecionados):
         markdown_text = "### Pontos-chave para detalhar:\n" + "\n".join(f"* {p}" for p in perguntas)
         return gr.update(visible=True), gr.update(label=f"Sobre: '{primeiro_topico}'"), gr.update(value=markdown_text), gr.update(visible=True), gr.update(visible=True)
     except Exception as e:
-        print(f"Erro ao chamar ai_service.get_drilldown_questions: {e}")
         return gr.update(visible=False), gr.update(label="Meu Diário"), gr.update(value=None), gr.update(visible=False), gr.update(visible=False)
 def fn_update_diario_from_outro(outro_topico_texto):
     if not outro_topico_texto:
@@ -113,11 +112,6 @@ def fn_update_diario_from_outro(outro_topico_texto):
         gr.update(visible=True), gr.update(label=f"Sobre: '{outro_topico_texto}'"),
         gr.update(value=markdown_text), gr.update(visible=True), gr.update(visible=True)
     )
-
-# --- FUNÇÃO REMOVIDA (Áudio) ---
-# async def fn_transcribe_paciente(audio_filepath, diaro_atual):
-#     pass
-
 async def fn_submit_checkin_paciente(user_data_do_state, area, sentimento_float, topicos_selecionados, outro_topico_texto, diaro_texto, compartilhado_bool):
     if not user_data_do_state or "username" not in user_data_do_state:
         return gr.update(value="### ❌ Erro: Usuário não autenticado.", visible=True), gr.update(visible=False)
@@ -125,20 +119,13 @@ async def fn_submit_checkin_paciente(user_data_do_state, area, sentimento_float,
     role = user_data_do_state["role"]
     psicologa_id = user_data_do_state["psicologa_associada"] if role == "Paciente" else user_data_do_state["username"]
     if not psicologa_id: psicologa_id = "N/A" 
-    
-    # --- CORREÇÃO DE ESCOPO ---
-    # 1. Inicializa com o valor limpo
-    diario_para_analise = diaro_texto 
-    diario_para_salvar = diaro_texto
-    
     try:
         topicos_finais = topicos_selecionados
-        
+        diario_para_salvar = diaro_texto
+        diario_para_analise = diaro_texto
         if outro_topico_texto:
             topicos_finais.append(f"Outro: {outro_topico_texto}")
-            # Apenas o diário de análise recebe o prefixo
             diario_para_analise = f"Tópico principal escrito pelo usuário: {outro_topico_texto}.\n\nDiário: {diario_texto}"
-            
         checkin_data = CheckinFinal(area=area, sentimento=sentimento_float,
                                     topicos_selecionados=topicos_finais, diario_texto=diario_para_salvar)
         gemini_data = await ai_service.process_final_checkin(checkin_data, diario_para_analise)
@@ -164,13 +151,11 @@ async def fn_submit_checkin_paciente(user_data_do_state, area, sentimento_float,
     except Exception as e:
         print(f"Erro no fn_submit_checkin: {e}")
         return gr.update(value=f"Erro ao processar o check-in: {e}", visible=True), gr.update(visible=False)
-
 def fn_delete_last_record_paciente(user_data_do_state):
     if not user_data_do_state: return gr.update(visible=False), gr.update(value="Erro: Usuário não logado.")
     paciente_id = user_data_do_state["username"]
     db_service.delete_last_record(paciente_id)
     return gr.update(visible=False), gr.update(value="### ✅ Registro descartado com sucesso.", visible=True)
-
 def fn_load_history_paciente(user_data_do_state):
     if not user_data_do_state: return gr.update(value=None), gr.update(value="Erro: Usuário não logado.", visible=True)
     paciente_id = user_data_do_state["username"]
@@ -308,7 +293,7 @@ with gr.Blocks(
             btn_login = gr.Button("Entrar", variant="primary")
             chk_novo_usuario = gr.Checkbox(label="Sou novo usuário", value=False)
             
-            # --- MUDANÇA: Usa a função diretamente no choices ---
+            # --- MUDANÇA: Passa a lista estática ---
             in_signup_psicologa = gr.Dropdown(
                 label="Selecione sua Psicóloga",
                 choices=db_service.get_psicologas_list_for_signup(), 
@@ -392,8 +377,8 @@ with gr.Blocks(
                 )
 
             with gr.Tab("Enviar Recado", id=2) as recado_tab_psicologa:
+                in_paciente_dropdown_reg = gr.Dropdown(label="Selecione um Paciente", choices=["Carregando..."])
                 gr.Markdown("Envie um recado ou feedback para seu paciente com base no último registro dele.")
-                in_paciente_dropdown_recado = gr.Dropdown(label="Selecione um Paciente", choices=["Carregando..."])
                 btn_load_ultimo_diario = gr.Button("Carregar último diário como base")
                 out_diario_paciente_para_recado = gr.Textbox(label="Último Diário do Paciente", lines=5, interactive=False, visible=True)
                 out_diario_paciente_msg = gr.Markdown(visible=False)
@@ -476,9 +461,6 @@ with gr.Blocks(
         ]
     )
     
-    # --- CONEXÃO DE ÁUDIO REMOVIDA ---
-    # in_diario_audio_paciente.stop_recording(...)
-    
     btn_submit_paciente.click(
         fn=fn_submit_checkin_paciente,
         inputs=[
@@ -516,7 +498,7 @@ with gr.Blocks(
     )
     btn_load_ultimo_diario.click(
         fn=fn_load_ultimo_diario_psicologa,
-        inputs=[in_paciente_dropdown_recado],
+        inputs=[in_paciente_dropdown_reg],
         outputs=[out_diario_paciente_para_recado, out_diario_paciente_msg],
         show_progress="full"
     )
@@ -531,7 +513,7 @@ with gr.Blocks(
     )
     btn_enviar_recado.click(
         fn=fn_send_recado_psicologa,
-        inputs=[state_user, in_paciente_dropdown_recado, in_recado_texto],
+        inputs=[state_user, in_paciente_dropdown_reg, in_recado_texto],
         outputs=[out_feedback_recado_psicologa],
         show_progress="full"
     )
