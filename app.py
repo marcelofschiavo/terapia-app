@@ -3,10 +3,10 @@ import gradio as gr
 import os
 import time
 from services.ai_service import ai_service
-from services.db_service import db_service
+from services.db_service import db_service # <-- MUDANÇA
 from models.schemas import CheckinContext, DrilldownRequest, CheckinFinal, GeminiResponse
-# from fastapi import UploadFile # (Removido, não é mais necessário)
-# import pandas as pd # (Removido)
+from fastapi import UploadFile # (Simulação)
+import pandas as pd
 
 # --- Lista de Áreas (Alfabética) ---
 areas_de_vida = [
@@ -41,9 +41,9 @@ def fn_toggle_signup_form(is_novo_usuario_check):
     return gr.update(visible=is_novo_usuario_check), gr.update(visible=is_novo_usuario_check)
 
 def fn_login(username, password):
-    # (Sem mudanças)
     if not username or not password:
         return None, gr.update(value="Usuário ou senha não podem estar em branco.", visible=True)
+    # --- MUDANÇA: Usa o db_service ---
     login_valido, role, psicologa_associada = db_service.check_user(username, password)
     if login_valido:
         user_data = {"username": username, "role": role, "psicologa_associada": psicologa_associada}
@@ -52,7 +52,6 @@ def fn_login(username, password):
         return None, gr.update(value="Login falhou. Verifique seu usuário e senha.", visible=True)
 
 def fn_handle_role(user_data, request: gr.Request):
-    # (Sem mudanças)
     if not user_data: 
         return gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), \
                gr.update(value=""), gr.update(choices=[]), gr.update(choices=[])
@@ -64,6 +63,7 @@ def fn_handle_role(user_data, request: gr.Request):
                gr.update(value=psicologa_associada), gr.update(choices=[]), gr.update(choices=[])
     elif role == "Psicóloga":
         print(f"Mostrando UI de Psicóloga para {user_data.get('username')}")
+        # --- MUDANÇA: Usa o db_service ---
         lista_pacientes = db_service.get_pacientes_da_psicologa(user_data.get("username"))
         return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True), \
                gr.update(value="N/A"), gr.update(choices=lista_pacientes), gr.update(choices=lista_pacientes)
@@ -72,7 +72,7 @@ def fn_handle_role(user_data, request: gr.Request):
                gr.update(value=""), gr.update(choices=[]), gr.update(choices=[])
 
 def fn_create_user(username, password, psicologa_selecionada):
-    # (Sem mudanças)
+    # --- MUDANÇA: Usa o db_service ---
     success, message = db_service.create_user(username, password, psicologa_selecionada)
     return gr.update(value=message, visible=True)
 
@@ -108,6 +108,22 @@ async def fn_get_drilldown_paciente(topicos_selecionados):
     except Exception as e:
         print(f"Erro ao chamar ai_service.get_drilldown_questions: {e}")
         return gr.update(visible=False), gr.update(label="Meu Diário"), gr.update(value=None), gr.update(visible=False), gr.update(visible=False)
+async def fn_transcribe_paciente(audio_filepath, diaro_atual):
+    # (Sem mudanças)
+    if audio_filepath is None: return diaro_atual
+    try:
+        class SimulaUploadFile:
+            def __init__(self, filepath):
+                self.filename = os.path.basename(filepath); self.file = open(filepath, 'rb')
+            async def read(self): return self.file.read()
+            def close(self): self.file.close()
+        audio_file = SimulaUploadFile(audio_filepath)
+        response_data = await ai_service.transcribe_audio(audio_file)
+        audio_file.close() 
+        transcricao = response_data.get("transcricao", ""); novo_texto = f"{diaro_atual}\n{transcricao}".strip()
+        return novo_texto
+    except Exception as e:
+        return diaro_atual
 def fn_update_diario_from_outro(outro_topico_texto):
     # (Sem mudanças)
     if not outro_topico_texto:
@@ -189,7 +205,7 @@ def fn_load_history_paciente(user_data_do_state):
         return gr.update(value=None), gr.update(value=f"Erro: A coluna {e} não foi encontrada.", visible=True)
     display_data = [[row[i] for i in col_indices] for row in user_history[:20]]
     try:
-        compartilhado_index = colunas_db.index('compartilhado')
+        compartilhado_index = colunas_display.index('Compartilhado?')
         for row in display_data:
             if row[compartilhado_index]: 
                 row[compartilhado_index] = "✅ Sim"
@@ -197,7 +213,8 @@ def fn_load_history_paciente(user_data_do_state):
                 row[compartilhado_index] = "❌ Não"
     except Exception as e:
         print(f"Erro ao formatar coluna 'compartilhado': {e}")
-    return gr.update(value=display_data, visible=True), gr.update(visible=False)
+    df = pd.DataFrame(display_data, columns=colunas_display)
+    return gr.update(value=df, visible=True), gr.update(visible=False)
 def fn_load_recados_paciente(user_data_do_state):
     # (Sem mudanças)
     if not user_data_do_state: return gr.update(value=None), gr.update(value="Erro: Usuário não logado.", visible=True)
@@ -212,7 +229,8 @@ def fn_load_recados_paciente(user_data_do_state):
     except ValueError as e:
         return gr.update(value=None), gr.update(value=f"Erro: A coluna {e} não foi encontrada.", visible=True)
     display_data = [[row[i] for i in col_indices] for row in recados]
-    return gr.update(value=display_data, visible=True), gr.update(visible=False)
+    df = pd.DataFrame(display_data, columns=colunas_display)
+    return gr.update(value=df, visible=True), gr.update(visible=False)
 
 # --- Funções da Psicóloga ---
 def fn_load_history_psicologa(paciente_selecionado):
@@ -244,7 +262,8 @@ def fn_load_history_psicologa(paciente_selecionado):
     except ValueError as e:
         return gr.update(value=None), gr.update(value=f"Erro: A coluna {e} não foi encontrada.", visible=True)
     display_data = [[row[i] for i in col_indices] for row in paciente_history[:50]]
-    return gr.update(value=display_data, visible=True), gr.update(visible=False)
+    df = pd.DataFrame(display_data, columns=colunas_display)
+    return gr.update(value=df, visible=True), gr.update(visible=False)
 def fn_load_ultimo_diario_psicologa(paciente_selecionado):
     # (Sem mudanças)
     if not paciente_selecionado or "Nenhum" in paciente_selecionado:
@@ -280,7 +299,7 @@ def fn_send_recado_psicologa(user_data_do_state, paciente_selecionado, mensagem_
         return gr.update(value=f"Erro: {message}", visible=True)
 def get_tableau_html():
     # (Sem mudanças)
-    tableau_url = "https://public.tableau.com/views/RegionalSampleWorkbook/Storms"
+    tableau_url = "https://public.tableau.com/views/RegionalSampleWorkbook/Storms" # URL de Exemplo
     html_embed = f"""
     <iframe src="{tableau_url}?:showVizHome=no&:embed=true"
             width="100%" height="800px" frameborder="0" 
@@ -320,7 +339,6 @@ with gr.Blocks(
     with gr.Row(visible=False) as paciente_view:
         with gr.Tabs() as paciente_tabs:
             with gr.Tab("Fazer Check-in", id=0) as checkin_tab_paciente:
-                # (Sem mudanças)
                 in_psicologa_nome = gr.Textbox(label="Sua Psicóloga Vinculada", interactive=False, visible=True)
                 gr.Markdown("Faça seu check-in diário...")
                 with gr.Row():
@@ -331,15 +349,13 @@ with gr.Blocks(
                     with gr.Column(scale=2):
                         out_sugestoes_paciente = gr.CheckboxGroup(label="O que aconteceu? (IA Nível 1)", visible=False)
                         in_outro_topico_paciente = gr.Textbox(label="Outro tópico (opcional)", visible=False)
-                
-                # --- MUDANÇA: Áudio Removido ---
                 with gr.Row(visible=False) as components_n3_paciente:
                     with gr.Column(scale=2):
-                        in_diario_texto_paciente = gr.Textbox(label="Meu Diário", lines=8, visible=True, placeholder="Descreva o que aconteceu...")
-                        # in_diario_audio_paciente = gr.Audio(...) # <-- REMOVIDO
+                        in_diario_texto_paciente = gr.Textbox(label="Meu Diário", lines=8, visible=True)
+                        # --- MUDANÇA: Áudio REATIVADO ---
+                        in_diario_audio_paciente = gr.Audio(sources=["microphone"], type="filepath", label="...grave seu diário por voz.", visible=True)
                     with gr.Column(scale=1, min_width=200):
                         out_perguntas_chave_paciente = gr.Markdown("### Pontos-chave para detalhar:")
-                
                 in_compartilhar_paciente = gr.Checkbox(label="Permitir que minha psicóloga acesse este registro", value=True, visible=False)
                 btn_submit_paciente = gr.Button("Registrar Check-in", visible=False)
                 out_feedback_paciente = gr.Markdown(visible=False)
@@ -349,7 +365,7 @@ with gr.Blocks(
                 gr.Markdown("Veja seus registros anteriores.")
                 btn_load_history_paciente = gr.Button("Carregar meu histórico")
                 out_history_message_paciente = gr.Markdown(visible=False)
-                out_history_df_paciente = gr.Dataframe(
+                out_history_df_paciente = gr.DataFrame(
                     label="Seus Registros", 
                     visible=False, 
                     wrap=True,
@@ -365,7 +381,7 @@ with gr.Blocks(
                 gr.Markdown("Veja os últimos recados enviados pela sua psicóloga.")
                 btn_load_recados_paciente = gr.Button("Verificar novos recados")
                 out_recados_message_paciente = gr.Markdown(visible=False)
-                out_recados_df_paciente = gr.Dataframe(
+                out_recados_df_paciente = gr.DataFrame(
                     label="Seus Recados", 
                     visible=False, 
                     wrap=True,
@@ -376,7 +392,6 @@ with gr.Blocks(
     with gr.Row(visible=False) as psicologa_view:
         with gr.Tabs() as psicologa_tabs:
             with gr.Tab("Analytics (Tableau)", id=0) as analytics_tab_psicologa:
-                # (Sem mudanças)
                 gr.Markdown("## Dashboard de Análise de Pacientes")
                 gr.HTML(value=get_tableau_html())
 
@@ -385,7 +400,7 @@ with gr.Blocks(
                 in_paciente_dropdown_hist = gr.Dropdown(label="Selecione um Paciente", choices=["Carregando..."])
                 btn_load_history_psicologa = gr.Button("Carregar Histórico do Paciente")
                 out_history_message_psicologa = gr.Markdown(visible=False)
-                out_history_df_psicologa = gr.Dataframe(
+                out_history_df_psicologa = gr.DataFrame(
                     label="Registros do Paciente", 
                     visible=False, 
                     wrap=True,
@@ -396,7 +411,6 @@ with gr.Blocks(
                 )
 
             with gr.Tab("Enviar Recado", id=2) as recado_tab_psicologa:
-                # (Sem mudanças)
                 gr.Markdown("Envie um recado ou feedback para seu paciente com base no último registro dele.")
                 in_paciente_dropdown_recado = gr.Dropdown(label="Selecione um Paciente", choices=["Carregando..."])
                 btn_load_ultimo_diario = gr.Button("Carregar último diário como base")
@@ -484,8 +498,12 @@ with gr.Blocks(
         ]
     )
     
-    # --- CONEXÃO REMOVIDA ---
-    # in_diario_audio_paciente.stop_recording(...)
+    # --- CONEXÃO REATIVADA ---
+    in_diario_audio_paciente.stop_recording(
+        fn=fn_transcribe_paciente,
+        inputs=[in_diario_audio_paciente, in_diario_texto_paciente],
+        outputs=[in_diario_texto_paciente]
+    )
     
     btn_submit_paciente.click(
         fn=fn_submit_checkin_paciente,
