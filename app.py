@@ -577,12 +577,14 @@ with gr.Blocks(
         show_progress="full"
     )
     
-    in_paciente_dropdown_recado.change(
+# --- MUDANÇA (Request 6): Conexões da Aba Enviar Recado ---
+    in_paciente_dropdown_reg.change(
         fn=fn_populate_registros_dropdown,
-        inputs=[in_paciente_dropdown_recado],
+        inputs=[in_paciente_dropdown_reg], # <-- CORRIGIDO
         outputs=[in_registro_dropdown_recado],
         show_progress="full"
     )
+    
     in_registro_dropdown_recado.change(
         fn=fn_load_diario_psicologa,
         inputs=[in_registro_dropdown_recado],
