@@ -5,8 +5,6 @@ uvicorn
 google-generativeai
 pydantic
 fastapi
-
-# Bibliotecas de Gráficos
 pandas
 plotly
 matplotlib

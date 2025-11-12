@@ -1,10 +1,11 @@
-# app.py (Corrigido o ValueError: expected 3, got 2)
+# app.py (Corrigido: ImportError, ValueError, NameError)
 import gradio as gr
 import os
 import time
 from services.ai_service import ai_service
 from services.db_service import db_service
-from services.vis_service import plot_sentiment_trend_paciente, plot_analytics_psicologa
+# --- MUDANÇA (ImportError) ---
+from services.vis_service import plot_sentiment_trend_paciente, plot_analytics_overview, plot_analytics_ia 
 from models.schemas import CheckinContext, DrilldownRequest, CheckinFinal, GeminiResponse
 import pandas as pd
 import plotly.graph_objects as go
@@ -33,7 +34,7 @@ print(f"Lista de psicólogas carregada: {LISTA_DE_PSICOLOGAS_CHOICES}")
 
 
 # --- Funções de Lógica ---
-# (fn_toggle_signup_form, fn_login, fn_handle_role, fn_create_user - Sem mudanças)
+# (fn_toggle_signup_form, fn_login, fn_create_user - Sem mudanças)
 def fn_toggle_signup_form(is_novo_usuario_check):
     return gr.update(visible=is_novo_usuario_check), gr.update(visible=is_novo_usuario_check)
 def fn_login(username, password):
@@ -45,30 +46,45 @@ def fn_login(username, password):
         return user_data, gr.update(value="", visible=False)
     else:
         return None, gr.update(value="Login falhou. Verifique seu usuário e senha.", visible=True)
+
+# --- FUNÇÃO ATUALIZADA (Request 2: Filtro "Todos") ---
 def fn_handle_role(user_data, request: gr.Request):
+    """
+    Roteador de UI. Retorna 7 valores para atualizar todos os componentes dinâmicos.
+    """
     if not user_data: 
+        # Rota de Logout
         return gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), \
-               gr.update(value=""), gr.update(choices=LISTA_DE_PSICOLOGAS_CHOICES), gr.update(choices=LISTA_DE_PSICOLOGAS_CHOICES), gr.update(choices=["Todos"])
+               gr.update(value=""), gr.update(choices=LISTA_DE_PSICOLOGAS_CHOICES), gr.update(choices=[]), gr.update(choices=["Todos"])
+
     role = user_data.get("role")
+    
     if role == "Paciente":
         psicologa_associada = user_data.get("psicologa_associada", "Nenhuma")
         print(f"Mostrando UI de Paciente para {user_data.get('username')}")
+        # Rota Paciente
         return gr.update(visible=False), gr.update(visible=True), gr.update(visible=False), \
-               gr.update(value=psicologa_associada), gr.update(choices=[], value=None), gr.update(choices=[], value=None), gr.update(choices=["Todos"])
+               gr.update(value=psicologa_associada), gr.update(choices=[]), gr.update(choices=[]), gr.update(choices=["Todos"])
+        
     elif role == "Psicóloga":
         print(f"Mostrando UI de Psicóloga para {user_data.get('username')}")
         lista_pacientes = db_service.get_pacientes_da_psicologa(user_data.get("username"))
         lista_filtro_pacientes = ["Todos"] + lista_pacientes
+        # Rota Psicóloga
         return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True), \
-               gr.update(value="N/A"), gr.update(choices=lista_pacientes, value=None), gr.update(choices=lista_pacientes, value=None), gr.update(choices=lista_filtro_pacientes)
+               gr.update(value="N/A"), gr.update(choices=lista_pacientes), gr.update(choices=lista_pacientes), gr.update(choices=lista_filtro_pacientes)
+    
     else: # Fallback
         return gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), \
-               gr.update(value=""), gr.update(choices=LISTA_DE_PSICOLOGAS_CHOICES), gr.update(choices=LISTA_DE_PSICOLOGAS_CHOICES), gr.update(choices=["Todos"])
+               gr.update(value=""), gr.update(choices=LISTA_DE_PSICOLOGAS_CHOICES), gr.update(choices=[]), gr.update(choices=["Todos"])
+
 def fn_create_user(username, password, psicologa_selecionada):
     success, message = db_service.create_user(username, password, psicologa_selecionada)
     return gr.update(value=message, visible=True)
 
+
 # --- Funções do Paciente (Omitidas para brevidade, sem alterações) ---
+
 async def fn_get_suggestions_paciente(area, sentimento_float):
     try:
         contexto_data = CheckinContext(area=area, sentimento=sentimento_float)
@@ -152,30 +168,36 @@ def fn_delete_last_record_paciente(user_data_do_state):
     paciente_id = user_data_do_state["username"]
     db_service.delete_last_record(paciente_id)
     return gr.update(visible=False), gr.update(value="### ✅ Registro descartado com sucesso.", visible=True)
+
+# --- FUNÇÃO ATUALIZADA (Para o Gráfico) ---
 def fn_load_history_paciente(user_data_do_state):
+    """Carrega o histórico e o gráfico Plotly para o paciente."""
     if not user_data_do_state: 
         return None, gr.update(value=None), gr.update(value="Erro: Usuário não logado.", visible=True)
-    paciente_id = user_data_do_state["username"]
-    headers, all_rows = db_service.get_all_checkin_data() 
-    if not headers:
-        return None, gr.update(value=None), gr.update(value="Nenhum dado encontrado na planilha.", visible=True)
-    try:
-        id_col_index = headers.index('paciente_id')
-    except ValueError:
-        return None, gr.update(value=None), gr.update(value="Erro: Coluna 'paciente_id' não encontrada.", visible=True)
-    user_history_rows = [row for row in all_rows if len(row) > id_col_index and row[id_col_index] == paciente_id]
-    if not user_history_rows:
-        return None, gr.update(value=None), gr.update(value="Nenhum histórico encontrado para este usuário.", visible=True)
-        
-    fig = plot_sentiment_trend_paciente(paciente_id) 
     
-    user_history_rows.reverse() 
+    paciente_id = user_data_do_state["username"]
+    
+    # 1. GERA O GRÁFICO PLOTLY
+    fig = plot_sentiment_trend_paciente(paciente_id) # Usa a função do vis_service
+    
+    if fig is None:
+         return None, gr.update(value=None), gr.update(value="Nenhum histórico encontrado para este usuário.", visible=True)
+         
+    # 2. GERA A TABELA DE DADOS BRUTOS (sem pandas)
+    headers, all_rows = db_service.get_all_checkin_data()
+    id_col_index = headers.index('paciente_id')
+    user_history_rows = [row for row in all_rows if len(row) > id_col_index and row[id_col_index] == paciente_id]
+    user_history_rows.reverse() # Mais recentes primeiro
+    
     colunas_db = ['timestamp', 'area', 'sentimento', 'topicos_selecionados', 'diario_texto', 'insight_ia', 'acao_proposta', 'sentimento_texto', 'temas_gemini', 'resumo_psicologa', 'psicologa_id', 'compartilhado']
+    
     try:
         col_indices = [headers.index(col) for col in colunas_db]
     except ValueError as e:
         return None, gr.update(value=None), gr.update(value=f"Erro: A coluna {e} não foi encontrada.", visible=True)
+        
     display_data = [[row[i] for i in col_indices] for row in user_history_rows[:20]]
+    
     try:
         compartilhado_index = colunas_db.index('compartilhado')
         for row in display_data:
@@ -185,7 +207,9 @@ def fn_load_history_paciente(user_data_do_state):
                 row[compartilhado_index] = "❌ Não"
     except Exception as e:
         print(f"Erro ao formatar coluna 'compartilhado': {e}")
-    return fig, gr.update(value=display_data, visible=True), gr.update(visible=False)
+        
+    return fig, gr.update(value=display_data, visible=True), gr.update(visible=False) # [Gráfico, Tabela, Msg]
+
 def fn_load_recados_paciente(user_data_do_state):
     if not user_data_do_state: return gr.update(value=None), gr.update(value="Erro: Usuário não logado.", visible=True)
     paciente_id = user_data_do_state["username"]
@@ -202,20 +226,30 @@ def fn_load_recados_paciente(user_data_do_state):
 
 # --- Funções da Psicóloga ---
 
+# --- MUDANÇA (Request 3): Nova função para a aba Analytics ---
 def fn_load_analytics_psicologa(user_data_do_state, paciente_id_filtro):
+    """Carrega os 3 gráficos Plotly para a aba Analytics."""
     if not user_data_do_state: 
-        return None, None, None, gr.update(value="Erro: Usuário não logado.", visible=True)
+        return None, None, None, None, gr.update(value="Erro: Usuário não logado.", visible=True)
+        
     psicologa_id = user_data_do_state.get("username")
-    fig_trend, fig_areas, fig_temas = plot_analytics_psicologa(psicologa_id, paciente_id_filtro)
+    
+    # Chama o vis_service com o filtro selecionado
+    fig_trend, fig_areas = plot_analytics_overview(psicologa_id, paciente_id_filtro)
+    fig_temas, fig_sentimentos_ia = plot_analytics_ia(psicologa_id, paciente_id_filtro)
+    
     if fig_trend is None:
-        return None, None, None, gr.update(value="Nenhum dado compartilhado encontrado para gerar análises.", visible=True)
-    return fig_trend, fig_areas, fig_temas, gr.update(visible=False)
+        return None, None, None, None, gr.update(value="Nenhum dado compartilhado encontrado para gerar análises.", visible=True)
+        
+    return fig_trend, fig_areas, fig_temas, fig_sentimentos_ia, gr.update(visible=False)
 
-# --- FUNÇÃO ATUALIZADA (CORRIGIDO O BUG) ---
+
+# --- MUDANÇA (Request 5): Histórico agora busca recados também ---
 def fn_load_history_psicologa(paciente_selecionado):
     """Carrega o histórico (tabela) e os recados (tabela) para o paciente selecionado."""
+    
+    # --- MUDANÇA (ValueError Fix): Retorna 3 valores em todos os caminhos de erro ---
     if not paciente_selecionado or "Nenhum" in paciente_selecionado:
-        # Retorna 3 valores (tabela, recados, mensagem)
         return gr.update(value=None), gr.update(value=None), gr.update(value="Por favor, selecione um paciente.", visible=True)
         
     print(f"Psicóloga carregando histórico de: {paciente_selecionado}")
@@ -517,7 +551,7 @@ with gr.Blocks(
             out_analytics_plot_trend,
             out_analytics_plot_areas,
             out_analytics_plot_temas,
-            # out_analytics_plot_sentimentos, # <-- (Removido temporariamente para o fix)
+            out_analytics_plot_sentimentos,
             out_analytics_message
         ],
         show_progress="full"
@@ -535,9 +569,9 @@ with gr.Blocks(
         show_progress="full"
     )
     
-    in_paciente_dropdown_recado.change(
+    in_paciente_dropdown_reg.change(
         fn=fn_populate_registros_dropdown,
-        inputs=[in_paciente_dropdown_recado],
+        inputs=[in_paciente_dropdown_reg],
         outputs=[in_registro_dropdown_recado],
         show_progress="full"
     )
