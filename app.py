@@ -1,11 +1,10 @@
-# app.py (Corrigido: ImportError, ValueError, NameError)
+# app.py (Corrigido o ValueError e o NameError)
 import gradio as gr
 import os
 import time
 from services.ai_service import ai_service
 from services.db_service import db_service
-# --- MUDANÇA (ImportError) ---
-from services.vis_service import plot_sentiment_trend_paciente, plot_analytics_overview, plot_analytics_ia 
+from services.vis_service import plot_sentiment_trend_paciente, plot_analytics_overview, plot_analytics_ia
 from models.schemas import CheckinContext, DrilldownRequest, CheckinFinal, GeminiResponse
 import pandas as pd
 import plotly.graph_objects as go
@@ -34,9 +33,10 @@ print(f"Lista de psicólogas carregada: {LISTA_DE_PSICOLOGAS_CHOICES}")
 
 
 # --- Funções de Lógica ---
-# (fn_toggle_signup_form, fn_login, fn_create_user - Sem mudanças)
+
 def fn_toggle_signup_form(is_novo_usuario_check):
     return gr.update(visible=is_novo_usuario_check), gr.update(visible=is_novo_usuario_check)
+
 def fn_login(username, password):
     if not username or not password:
         return None, gr.update(value="Usuário ou senha não podem estar em branco.", visible=True)
@@ -211,6 +211,7 @@ def fn_load_history_paciente(user_data_do_state):
     return fig, gr.update(value=display_data, visible=True), gr.update(visible=False) # [Gráfico, Tabela, Msg]
 
 def fn_load_recados_paciente(user_data_do_state):
+    # --- MUDANÇA (Correção do "tuple index" bug) ---
     if not user_data_do_state: return gr.update(value=None), gr.update(value="Erro: Usuário não logado.", visible=True)
     paciente_id = user_data_do_state["username"]
     headers, recados = db_service.get_recados_paciente(paciente_id)
@@ -221,7 +222,9 @@ def fn_load_recados_paciente(user_data_do_state):
         col_indices = [headers.index(col) for col in colunas_db]
     except ValueError as e:
         return gr.update(value=None), gr.update(value=f"Erro: A coluna {e} não foi encontrada.", visible=True)
-    display_data = [[row[i] for i in recados] for row in recados]
+    
+    # CORREÇÃO AQUI
+    display_data = [[row[i] for i in col_indices] for row in recados]
     return gr.update(value=display_data, visible=True), gr.update(visible=False)
 
 # --- Funções da Psicóloga ---
@@ -244,7 +247,7 @@ def fn_load_analytics_psicologa(user_data_do_state, paciente_id_filtro):
     return fig_trend, fig_areas, fig_temas, fig_sentimentos_ia, gr.update(visible=False)
 
 
-# --- MUDANÇA (Request 5): Histórico agora busca recados também ---
+# --- MUDANÇA (Request 5 e Correção do ValueError) ---
 def fn_load_history_psicologa(paciente_selecionado):
     """Carrega o histórico (tabela) e os recados (tabela) para o paciente selecionado."""
     
@@ -292,7 +295,8 @@ def fn_load_history_psicologa(paciente_selecionado):
     if recados_rows:
         colunas_db_recados = ['timestamp', 'psicologa_id', 'mensagem_texto']
         col_indices_recados = [headers_recados.index(col) for col in colunas_db_recados]
-        display_data_recados = [[row[i] for i in recados_rows] for row in recados_rows]
+        # --- MUDANÇA (Correção do "tuple index" bug) ---
+        display_data_recados = [[row[i] for i in col_indices_recados] for row in recados_rows]
 
     # Retorna 3 valores
     return gr.update(value=display_data_checkin, visible=True), gr.update(value=display_data_recados, visible=True), gr.update(visible=False)
