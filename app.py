@@ -1,13 +1,12 @@
-# app.py (Ativando o Sistema de Recados)
+# app.py (Com Plotly NATIVO, sem Tableau)
 import gradio as gr
 import os
 import time
 from services.ai_service import ai_service
 from services.db_service import db_service
+from services.vis_service import plot_sentiment_trend_paciente, plot_analytics_psicologa # <-- NOVO
 from models.schemas import CheckinContext, DrilldownRequest, CheckinFinal, GeminiResponse
-# ... (outros imports) ...
-import pandas as pd # Mantido, pois o Gradio o puxa como dependência e facilita a conversão interna
-
+import pandas as pd # Mantido para os DataFrames de histórico
 
 # --- Lista de Áreas (Alfabética) ---
 areas_de_vida = [
@@ -32,9 +31,10 @@ print(f"Lista de psicólogas carregada: {LISTA_DE_PSICOLOGAS_CHOICES}")
 
 
 # --- Funções de Lógica ---
-# (fn_toggle_signup_form, fn_login, fn_handle_role, fn_create_user - Sem mudanças)
+
 def fn_toggle_signup_form(is_novo_usuario_check):
     return gr.update(visible=is_novo_usuario_check), gr.update(visible=is_novo_usuario_check)
+
 def fn_login(username, password):
     if not username or not password:
         return None, gr.update(value="Usuário ou senha não podem estar em branco.", visible=True)
@@ -44,42 +44,51 @@ def fn_login(username, password):
         return user_data, gr.update(value="", visible=False)
     else:
         return None, gr.update(value="Login falhou. Verifique seu usuário e senha.", visible=True)
+
 def fn_handle_role(user_data, request: gr.Request):
     if not user_data: 
         return gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), \
                gr.update(value=""), gr.update(choices=LISTA_DE_PSICOLOGAS_CHOICES), gr.update(choices=LISTA_DE_PSICOLOGAS_CHOICES)
+
     role = user_data.get("role")
+    
     if role == "Paciente":
         psicologa_associada = user_data.get("psicologa_associada", "Nenhuma")
         print(f"Mostrando UI de Paciente para {user_data.get('username')}")
         return gr.update(visible=False), gr.update(visible=True), gr.update(visible=False), \
                gr.update(value=psicologa_associada), gr.update(choices=[], value=None), gr.update(choices=[], value=None)
+        
     elif role == "Psicóloga":
         print(f"Mostrando UI de Psicóloga para {user_data.get('username')}")
         lista_pacientes = db_service.get_pacientes_da_psicologa(user_data.get("username"))
         return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True), \
                gr.update(value="N/A"), gr.update(choices=lista_pacientes, value=None), gr.update(choices=lista_pacientes, value=None)
+    
     else: # Fallback
         return gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), \
                gr.update(value=""), gr.update(choices=LISTA_DE_PSICOLOGAS_CHOICES), gr.update(choices=LISTA_DE_PSICOLOGAS_CHOICES)
+
 def fn_create_user(username, password, psicologa_selecionada):
     success, message = db_service.create_user(username, password, psicologa_selecionada)
     return gr.update(value=message, visible=True)
 
-# --- Funções do Paciente (Sem mudanças no checkin) ---
+# --- Funções do Paciente ---
 async def fn_get_suggestions_paciente(area, sentimento_float):
     try:
         contexto_data = CheckinContext(area=area, sentimento=sentimento_float)
         response_data = await ai_service.get_suggestions(contexto_data)
         sugestoes = response_data.get("sugestoes", [])
         return (
-            gr.update(choices=sugestoes, value=None, visible=True), gr.update(visible=True), 
-            gr.update(visible=False), gr.update(visible=False), gr.update(visible=False) 
+            gr.update(choices=sugestoes, value=None, visible=True), 
+            gr.update(visible=True), gr.update(visible=False), 
+            gr.update(visible=False), gr.update(visible=False) 
         )
     except Exception as e:
         print(f"Erro ao chamar ai_service.get_suggestions: {e}")
-        return (gr.update(choices=[], value=None, visible=False), gr.update(visible=False),
-            gr.update(visible=False), gr.update(visible=False), gr.update(visible=False))
+        return (
+            gr.update(choices=[], value=None, visible=False), gr.update(visible=False),
+            gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
+        )
 async def fn_get_drilldown_paciente(topicos_selecionados):
     if not topicos_selecionados:
         return gr.update(visible=False), gr.update(label="Meu Diário"), gr.update(value=None), gr.update(visible=False), gr.update(visible=False)
@@ -94,11 +103,15 @@ async def fn_get_drilldown_paciente(topicos_selecionados):
         return gr.update(visible=False), gr.update(label="Meu Diário"), gr.update(value=None), gr.update(visible=False), gr.update(visible=False)
 def fn_update_diario_from_outro(outro_topico_texto):
     if not outro_topico_texto:
-        return (gr.update(visible=False), gr.update(label="Meu Diário"), 
-            gr.update(value=""), gr.update(visible=False), gr.update(visible=False))
+        return (
+            gr.update(visible=False), gr.update(label="Meu Diário"), 
+            gr.update(value=""), gr.update(visible=False), gr.update(visible=False)
+        )
     markdown_text = "### Pontos-chave para detalhar:\n(Descreva seu tópico acima)"
-    return (gr.update(visible=True), gr.update(label=f"Sobre: '{outro_topico_texto}'"),
-        gr.update(value=markdown_text), gr.update(visible=True), gr.update(visible=True))
+    return (
+        gr.update(visible=True), gr.update(label=f"Sobre: '{outro_topico_texto}'"),
+        gr.update(value=markdown_text), gr.update(visible=True), gr.update(visible=True)
+    )
 async def fn_submit_checkin_paciente(user_data_do_state, area, sentimento_float, topicos_selecionados, outro_topico_texto, diaro_texto, compartilhado_bool):
     if not user_data_do_state or "username" not in user_data_do_state:
         return gr.update(value="### ❌ Erro: Usuário não autenticado.", visible=True), gr.update(visible=False)
@@ -112,7 +125,7 @@ async def fn_submit_checkin_paciente(user_data_do_state, area, sentimento_float,
         diario_para_analise = diaro_texto
         if outro_topico_texto:
             topicos_finais.append(f"Outro: {outro_topico_texto}")
-            diario_para_analise = f"Tópico principal escrito pelo usuário: {outro_topico_texto}.\n\nDiário: {diario_texto}"
+            diario_para_analise = f"Tópico principal escrito pelo usuário: {outro_topico_texto}.\n\nDiário: {diaro_texto}"
         checkin_data = CheckinFinal(area=area, sentimento=sentimento_float,
                                     topicos_selecionados=topicos_finais, diario_texto=diario_para_salvar)
         gemini_data = await ai_service.process_final_checkin(checkin_data, diario_para_analise)
@@ -143,27 +156,41 @@ def fn_delete_last_record_paciente(user_data_do_state):
     paciente_id = user_data_do_state["username"]
     db_service.delete_last_record(paciente_id)
     return gr.update(visible=False), gr.update(value="### ✅ Registro descartado com sucesso.", visible=True)
+
+# --- FUNÇÃO ATUALIZADA: Nova função para carregar dados para o Plotly ---
 def fn_load_history_paciente(user_data_do_state):
-    if not user_data_do_state: return gr.update(value=None), gr.update(value="Erro: Usuário não logado.", visible=True)
+    """Carrega o histórico e o gráfico Plotly para o paciente."""
+    if not user_data_do_state: 
+        return None, gr.update(value=None), gr.update(value="Erro: Usuário não logado.", visible=True)
+    
     paciente_id = user_data_do_state["username"]
-    headers, all_rows = db_service.get_all_checkin_data()
+    headers, all_rows = db_service.get_all_checkin_data() # Busca todos os checkins
+    
     if not headers:
-        return gr.update(value=None), gr.update(value="Nenhum dado encontrado na planilha.", visible=True)
-    try:
-        id_col_index = headers.index('paciente_id')
-    except ValueError:
-        return gr.update(value=None), gr.update(value="Erro: Coluna 'paciente_id' não encontrada.", visible=True)
-    user_history = [row for row in all_rows if len(row) > id_col_index and row[id_col_index] == paciente_id]
-    if not user_history:
-        return gr.update(value=None), gr.update(value="Nenhum histórico encontrado para este usuário.", visible=True)
-    user_history.reverse()
+        return None, gr.update(value=None), gr.update(value="Nenhum dado encontrado na planilha.", visible=True)
+    
+    # 1. GERA O GRÁFICO PLOTLY
+    # Filtra os dados (para o paciente)
+    id_col_index = headers.index('paciente_id')
+    user_history_rows = [row for row in all_rows if len(row) > id_col_index and row[id_col_index] == paciente_id]
+    
+    if not user_history_rows:
+        return None, gr.update(value=None), gr.update(value="Nenhum histórico encontrado para este usuário.", visible=True)
+        
+    fig, msg_plot = plot_sentiment_trend_paciente(paciente_id) # Usa a função do vis_service
+    
+    # 2. GERA A TABELA DE DADOS BRUTOS (sem pandas)
+    user_history_rows.reverse() # Mais recentes primeiro
     colunas_db = ['timestamp', 'area', 'sentimento', 'topicos_selecionados', 'diario_texto', 'insight_ia', 'acao_proposta', 'sentimento_texto', 'temas_gemini', 'resumo_psicologa', 'psicologa_id', 'compartilhado']
     colunas_display = ["Data", "Área", "Nota (1-5)", "Tópicos Selecionados", "Meu Diário", "Insight", "Ação", "Sentimento (IA)", "Temas (IA)", "Resumo", "Psicóloga", "Compartilhado?"]
+    
     try:
         col_indices = [headers.index(col) for col in colunas_db]
     except ValueError as e:
-        return gr.update(value=None), gr.update(value=f"Erro: A coluna {e} não foi encontrada.", visible=True)
-    display_data = [[row[i] for i in col_indices] for row in user_history[:20]]
+        return None, gr.update(value=None), gr.update(value=f"Erro: A coluna {e} não foi encontrada.", visible=True)
+        
+    display_data = [[row[i] for i in col_indices] for row in user_history_rows[:20]]
+    
     try:
         compartilhado_index = colunas_db.index('compartilhado')
         for row in display_data:
@@ -173,9 +200,11 @@ def fn_load_history_paciente(user_data_do_state):
                 row[compartilhado_index] = "❌ Não"
     except Exception as e:
         print(f"Erro ao formatar coluna 'compartilhado': {e}")
-    return gr.update(value=display_data, visible=True), gr.update(visible=False)
+        
+    return fig, gr.update(value=display_data, visible=True), gr.update(value=msg_plot, visible=bool(msg_plot))
+
 def fn_load_recados_paciente(user_data_do_state):
-    # --- MUDANÇA: Ativa a função ---
+    # (Sem mudanças)
     if not user_data_do_state: return gr.update(value=None), gr.update(value="Erro: Usuário não logado.", visible=True)
     paciente_id = user_data_do_state["username"]
     headers, recados = db_service.get_recados_paciente(paciente_id)
@@ -190,8 +219,9 @@ def fn_load_recados_paciente(user_data_do_state):
     display_data = [[row[i] for i in col_indices] for row in recados]
     return gr.update(value=display_data, visible=True), gr.update(visible=False)
 
-# --- Funções da Psicóloga (Ativadas) ---
+# --- Funções da Psicóloga ---
 def fn_load_history_psicologa(paciente_selecionado):
+    # (Sem mudanças)
     if not paciente_selecionado or "Nenhum" in paciente_selecionado:
         return gr.update(value=None), gr.update(value="Por favor, selecione um paciente.", visible=True)
     print(f"Psicóloga carregando histórico de: {paciente_selecionado}")
@@ -254,15 +284,9 @@ def fn_send_recado_psicologa(user_data_do_state, paciente_selecionado, mensagem_
     else:
         return gr.update(value=f"Erro: {message}", visible=True)
 
-def get_tableau_html():
-    tableau_url = "https://public.tableau.com/views/RegionalSampleWorkbook/Storms"
-    html_embed = f"""
-    <iframe src="{tableau_url}?:showVizHome=no&:embed=true"
-            width="100%" height="800px" frameborder="0" 
-            allowtransparency="true" allowfullscreen="true">
-    </iframe>
-    """
-    return html_embed
+# --- FUNÇÃO REMOVIDA ---
+# def get_tableau_html():
+#     pass
 
 # --- Interface Gráfica (Gradio Blocks) ---
 with gr.Blocks(
@@ -315,52 +339,48 @@ with gr.Blocks(
                 btn_discard_paciente = gr.Button("Prefiro descartar este registro/não acrescentar no histórico", variant="secondary", visible=False)
 
             with gr.Tab("Meu Histórico", id=1) as history_tab_paciente:
-                gr.Markdown("Veja seus registros anteriores.")
+                gr.Markdown("## Seu Histórico e Tendência")
+                
+                # --- MUDANÇA: Novo Slot para Gráfico Plotly ---
+                out_history_plot_paciente = gr.Plot(label="Tendência de Sentimento", visible=False)
+                
                 btn_load_history_paciente = gr.Button("Carregar meu histórico")
                 out_history_message_paciente = gr.Markdown(visible=False)
                 out_history_df_paciente = gr.DataFrame(
-                    label="Seus Registros", 
+                    label="Detalhes dos Registros", 
                     visible=False, 
                     wrap=True,
-                    headers=[
-                        "Data", "Área", "Nota (1-5)", "Tópicos Selecionados",
-                        "Meu Diário", "Insight", "Ação",
-                        "Sentimento (IA)", "Temas (IA)", "Resumo",
-                        "Psicóloga", "Compartilhado?"
-                    ]
+                    headers=["Data", "Área", "Nota (1-5)", "Tópicos Selecionados", "Meu Diário", "Insight", "Ação", "Sentimento (IA)", "Temas (IA)", "Resumo", "Psicóloga", "Compartilhado?"]
                 )
 
             with gr.Tab("Recados da Psicóloga", id=2) as recados_tab_paciente:
                 gr.Markdown("Veja os últimos recados enviados pela sua psicóloga.")
                 btn_load_recados_paciente = gr.Button("Verificar novos recados")
                 out_recados_message_paciente = gr.Markdown(visible=False)
-                out_recados_df_paciente = gr.DataFrame(
-                    label="Seus Recados", 
-                    visible=False, 
-                    wrap=True,
-                    headers=["Data", "De", "Mensagem"]
-                )
+                out_recados_df_paciente = gr.DataFrame(label="Seus Recados", visible=False, wrap=True, headers=["Data", "De", "Mensagem"])
 
     # --- VISÃO DA PSICÓLOGA (Começa Oculta) ---
     with gr.Row(visible=False) as psicologa_view:
         with gr.Tabs() as psicologa_tabs:
-            with gr.Tab("Analytics (Tableau)", id=0) as analytics_tab_psicologa:
-                gr.Markdown("## Dashboard de Análise de Pacientes")
-                gr.HTML(value=get_tableau_html())
-
+            with gr.Tab("Analytics (Visão Geral)", id=0) as analytics_tab_psicologa:
+                # --- MUDANÇA: Substitui Tableau por Mensagem ---
+                gr.Markdown("## Dashboard de Análise de Pacientes (Seguro)")
+                gr.Markdown("**Acesse o Dashboard completo de Análise e Estatísticas na Planilha de Google Sheets.**\n\n*(Este painel está desativado para garantir a segurança dos dados clínicos no Render)*")
+                
             with gr.Tab("Ver Histórico (Paciente)", id=1) as history_tab_psicologa:
                 gr.Markdown("Selecione um paciente para ver seu histórico de check-ins (apenas registros compartilhados).")
                 in_paciente_dropdown_hist = gr.Dropdown(label="Selecione um Paciente", choices=["Carregando..."])
                 btn_load_history_psicologa = gr.Button("Carregar Histórico do Paciente")
+                
+                # --- MUDANÇA: Novo Slot para Gráfico Plotly ---
+                out_history_plot_psicologa = gr.Plot(label="Tendência de Sentimento do Paciente", visible=False)
+                
                 out_history_message_psicologa = gr.Markdown(visible=False)
                 out_history_df_psicologa = gr.DataFrame(
                     label="Registros do Paciente", 
                     visible=False, 
                     wrap=True,
-                    headers=[
-                        "Data", "Área", "Nota (1-5)", "Tópicos",
-                        "Diário do Paciente", "Sentimento (IA)", "Temas (IA)", "Resumo (IA)"
-                    ]
+                    headers=["Data", "Área", "Nota (1-5)", "Tópicos", "Diário do Paciente", "Sentimento (IA)", "Temas (IA)", "Resumo (IA)"]
                 )
 
             with gr.Tab("Enviar Recado", id=2) as recado_tab_psicologa:
@@ -462,12 +482,15 @@ with gr.Blocks(
         inputs=[state_user],
         outputs=[btn_discard_paciente, out_feedback_paciente]
     )
+    
+    # --- MUDANÇA: Conexão de Histórico (AGORA RETORNA 3 VALORES) ---
     btn_load_history_paciente.click(
         fn=fn_load_history_paciente,
         inputs=[state_user],
-        outputs=[out_history_df_paciente, out_history_message_paciente],
+        outputs=[out_history_plot_paciente, out_history_df_paciente, out_history_message_paciente],
         show_progress="full"
     )
+    
     btn_load_recados_paciente.click(
         fn=fn_load_recados_paciente,
         inputs=[state_user],
@@ -479,7 +502,7 @@ with gr.Blocks(
     btn_load_history_psicologa.click(
         fn=fn_load_history_psicologa,
         inputs=[in_paciente_dropdown_hist],
-        outputs=[out_history_df_psicologa, out_history_message_psicologa],
+        outputs=[out_history_plot_psicologa, out_history_df_psicologa, out_history_message_psicologa],
         show_progress="full"
     )
     btn_load_ultimo_diario.click(
@@ -505,6 +528,5 @@ with gr.Blocks(
     )
 
 # --- Lançar a Aplicação ---
-# O Gradio só deve iniciar se for executado diretamente (para teste local)
 if __name__ == "__main__":
     app.launch(debug=True)
