@@ -4,10 +4,11 @@ import plotly.express as px
 import plotly.graph_objects as go
 from .db_service import db_service # Importa nosso serviço de banco de dados
 
-def _create_clean_dataframe(paciente_id=None, psicologa_id=None, shared_only=True):
+def _create_clean_dataframe(psicologa_id: str, paciente_id: str = "Todos"):
     """
     Função helper interna. Busca todos os dados de check-in e os transforma
     em um DataFrame limpo do Pandas, pronto para plotagem.
+    (Request 2 e 4: Lógica de filtro "Todos" corrigida)
     """
     
     # 1. Busca dados brutos do DB
@@ -21,35 +22,32 @@ def _create_clean_dataframe(paciente_id=None, psicologa_id=None, shared_only=Tru
     # 3. Limpeza de Dados
     df['timestamp'] = pd.to_datetime(df['timestamp'])
     df['sentimento'] = pd.to_numeric(df['sentimento'], errors='coerce')
-    
-    # Converte 'TRUE'/'FALSE' (strings do DB) para Booleanos
     df['compartilhado'] = df['compartilhado'].apply(lambda x: str(x).upper() == 'TRUE' or x == True)
-    
     df = df.dropna(subset=['sentimento', 'timestamp'])
     
-    # 4. Filtra (se necessário)
-    if shared_only:
-        df = df[df['compartilhado'] == True]
-        
-    if paciente_id:
-        df = df[df['paciente_id'] == paciente_id]
-        
-    if psicologa_id:
-        df = df[df['psicologa_id'] == psicologa_id]
-
-    return df.sort_values(by='timestamp')
+    # 4. Filtra
+    # Primeiro, pega apenas os registros COMPARTILHADOS desta psicóloga
+    df_psicologa = df[(df['compartilhado'] == True) & (df['psicologa_id'] == psicologa_id)]
+    
+    # Se o filtro for "Todos", retorna todos os pacientes da psicóloga
+    if paciente_id == "Todos":
+        return df_psicologa.sort_values(by='timestamp')
+    else:
+        # Senão, filtra por aquele paciente específico
+        df_paciente = df_psicologa[df_psicologa['paciente_id'] == paciente_id]
+        return df_paciente.sort_values(by='timestamp')
 
 
 def plot_sentiment_trend_paciente(paciente_id):
     """
     Gráfico 1 (Paciente): Tendência Individual (Pontos + Média Móvel)
     """
-    df = _create_clean_dataframe(paciente_id=paciente_id, shared_only=False) # Paciente pode ver tudo
+    # Paciente pode ver seus próprios registros, compartilhados ou não
+    df = _create_clean_dataframe(paciente_id=paciente_id, shared_only=False, psicologa_id=None) 
     
     if df.empty:
-        return None # Retorna None se não houver dados
+        return None 
 
-    # Calcula a Média Móvel
     df = df.set_index('timestamp')
     df['media_movel_7d'] = df['sentimento'].rolling('7D').mean()
     df = df.reset_index()
@@ -68,21 +66,25 @@ def plot_sentiment_trend_paciente(paciente_id):
     fig.update_layout(title=f"Jornada de Sentimento: {paciente_id}", yaxis_title="Nota (1-5)", template="plotly_white", height=400)
     return fig
 
-def plot_analytics_psicologa(psicologa_id):
+# --- FUNÇÕES ATUALIZADAS (Request 3 e 4) ---
+def plot_analytics_overview(psicologa_id, paciente_id_filtro):
     """
-    Dashboard 2 (Psicóloga): Gera 3 gráficos para a visão geral.
+    Dashboard 1 (Psicóloga): Gera 2 gráficos para a visão geral.
+    (Request 4: Gráfico de Tendência Corrigido)
     """
-    df_geral = _create_clean_dataframe(shared_only=True)
-    df = df_geral[df_geral['psicologa_id'] == psicologa_id]
+    df = _create_clean_dataframe(psicologa_id=psicologa_id, paciente_id=paciente_id_filtro)
     
     if df.empty:
-        return None, None, None # Retorna 3 Nones
+        return None, None # Retorna 2 Nones
 
-    # --- Gráfico 1: Tendência Geral de Sentimento (Média da Clínica) ---
+    # --- Gráfico 1: Tendência Geral de Sentimento (CORRIGIDO) ---
     df_resampled = df.set_index('timestamp')['sentimento'].resample('W').mean().reset_index()
+    
     fig_trend = px.line(
-        df_resampled, x='timestamp', y='sentimento', 
-        title="Média de Sentimento (Semanal, Todos Pacientes)"
+        df_resampled, 
+        x='timestamp', 
+        y='sentimento', 
+        title=f"Média de Sentimento Semanal ({paciente_id_filtro})"
     )
     fig_trend.update_layout(template="plotly_white", height=350, yaxis_title="Média de Nota (1-5)")
 
@@ -91,20 +93,47 @@ def plot_analytics_psicologa(psicologa_id):
     areas_count = df_low_scores['area'].value_counts().reset_index()
     
     fig_areas = px.bar(
-        areas_count, x='area', y='count', 
-        title="Áreas com Notas Baixas (1 ou 2)"
+        areas_count, 
+        x='area', 
+        y='count', 
+        title=f"Áreas com Notas Baixas (1 ou 2) ({paciente_id_filtro})"
     )
     fig_areas.update_layout(template="plotly_white", height=350, yaxis_title="Nº de Registros Baixos", xaxis_title="Área")
+    
+    return fig_trend, fig_areas
 
-    # --- Gráfico 3: Temas Mais Comuns (Baseado na IA) ---
+def plot_analytics_ia(psicologa_id, paciente_id_filtro):
+    """
+    Dashboard 2 (Psicóloga): Gera 2 gráficos de análise de IA.
+    """
+    df = _create_clean_dataframe(psicologa_id=psicologa_id, paciente_id=paciente_id_filtro)
+    
+    if df.empty:
+        return None, None # Retorna 2 Nones
+
+    # --- Gráfico 1: Temas Mais Comuns (Baseado na IA) ---
     temas = df['temas_gemini'].str.split(', ').explode().str.strip()
     temas_count = temas[temas != ''].value_counts().head(10).reset_index()
     
     fig_temas = px.bar(
-        temas_count, x='count', y='temas_gemini', 
-        orientation='h', title="Top 10 Temas (Detectados pela IA)"
+        temas_count, 
+        x='count', 
+        y='temas_gemini', 
+        orientation='h', 
+        title=f"Top 10 Temas (IA) ({paciente_id_filtro})"
     )
     fig_temas.update_layout(template="plotly_white", height=350, yaxis_title=None, xaxis_title="Contagem")
     fig_temas.update_yaxes(autorange="reversed")
+
+    # --- Gráfico 2: Sentimentos Mais Comuns (Baseado na IA) ---
+    sentimentos_ia_count = df['sentimento_texto'].value_counts().reset_index()
     
-    return fig_trend, fig_areas, fig_temas
+    fig_sentimentos_ia = px.pie(
+        sentimentos_ia_count, 
+        names='sentimento_texto', 
+        values='count', 
+        title=f"Sentimentos Detectados (IA) ({paciente_id_filtro})"
+    )
+    fig_sentimentos_ia.update_layout(template="plotly_white", height=350)
+    
+    return fig_temas, fig_sentimentos_ia

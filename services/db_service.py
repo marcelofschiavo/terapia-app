@@ -1,4 +1,4 @@
-# services/db_service.py (Versão SQL-Only, sem backup no Sheets)
+# services/db_service.py (Com novas funções de busca)
 import psycopg2
 from psycopg2 import sql
 from contextlib import contextmanager
@@ -11,7 +11,6 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 
 @contextmanager
 def get_db_connection():
-    """Função 'helper' para conectar e fechar o banco de dados com segurança."""
     if not DATABASE_URL:
         raise ValueError("DATABASE_URL não foi definida. Exporte a variável de ambiente.")
     conn = psycopg2.connect(DATABASE_URL)
@@ -24,13 +23,12 @@ class DBService:
     def __init__(self):
         self.psicologas_list = []
         self.all_users_data = []
-        # self.sheets_connector = None # <-- REMOVIDO
+        self.sheets_connector = None 
         
         try:
             with get_db_connection() as conn:
                 print("Conexão com PostgreSQL (Render) bem-sucedida.")
-            
-            # Não tenta mais conectar ao Sheets
+            # ... (Lógica do Sheets Connector omitida) ...
             
             self.psicologas_list = self.get_psicologas_list_for_signup()
             self.all_users_data = self.get_all_users()
@@ -68,8 +66,7 @@ class DBService:
             for row in self.all_users_data:
                 if len(row) > 3 and row[2] == "Paciente" and row[3] == psicologa_username:
                     pacientes.append(row[0]) 
-            if not pacientes:
-                return ["Nenhum paciente vinculado a você"]
+            # NÃO ADICIONA "Nenhum paciente..." para que o "Todos" funcione
             return pacientes
         except Exception as e:
             print(f"Erro ao buscar pacientes: {e}")
@@ -114,7 +111,7 @@ class DBService:
             return False, f"Erro no servidor ao tentar criar usuário: {e}"
 
     def write_checkin(self, checkin: CheckinFinal, gemini_data: GeminiResponse, paciente_id: str, psicologa_id: str, compartilhado: bool):
-        # --- LÓGICA DE BACKUP REMOVIDA ---
+        # (Sem mudanças)
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
@@ -142,6 +139,7 @@ class DBService:
             raise
 
     def get_all_checkin_data(self):
+        # (Sem mudanças)
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
@@ -154,6 +152,7 @@ class DBService:
             return [], []
 
     def get_recados_paciente(self, paciente_id: str):
+        # (Sem mudanças)
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
@@ -168,31 +167,58 @@ class DBService:
             print(f"Erro ao ler recados: {e}")
             return [], []
 
-    def get_ultimo_diario_paciente(self, paciente_id: str):
+    # --- FUNÇÃO ATUALIZADA (Request 6) ---
+    def get_diario_by_checkin_id(self, checkin_id: int):
+        """Busca um diário e tópicos específicos por ID."""
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
-                        """
-                        SELECT topicos_selecionados, diario_texto FROM checkins 
-                        WHERE paciente_id = %s AND compartilhado = TRUE 
-                        ORDER BY timestamp DESC LIMIT 1
-                        """,
-                        (paciente_id,)
+                        "SELECT topicos_selecionados, diario_texto FROM checkins WHERE id = %s",
+                        (checkin_id,)
                     )
                     row = cur.fetchone()
                     if row:
                         topicos = row[0]
                         diario = row[1]
-                        return f"Tópicos: {topicos}\n\nDiário: {diario}", f"Último diário (compartilhado) de {paciente_id} carregado."
+                        return f"Tópicos: {topicos}\n\nDiário: {diario}", "Diário carregado."
                     else:
-                        return None, f"Nenhum diário compartilhado encontrado para {paciente_id}."
+                        return None, f"Registro com ID {checkin_id} não encontrado."
         except Exception as e:
-            print(f"Erro ao buscar último diário: {e}")
+            print(f"Erro ao buscar diário por ID: {e}")
             return None, f"Erro ao buscar diário: {e}"
 
+    # --- NOVA FUNÇÃO (Request 6) ---
+    def get_checkin_list_for_paciente(self, paciente_id: str):
+        """Busca uma lista de (id, timestamp) para o dropdown de seleção de registro."""
+        if not paciente_id or paciente_id == "Todos":
+            return []
+            
+        try:
+            with get_db_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT id, timestamp, LEFT(diario_texto, 40) FROM checkins 
+                        WHERE paciente_id = %s AND compartilhado = TRUE 
+                        ORDER BY timestamp DESC LIMIT 50
+                        """,
+                        (paciente_id,)
+                    )
+                    rows = cur.fetchall()
+                    if rows:
+                        # Formata como [ (label, valor) ] para o Gradio
+                        # Ex: ("2025-11-12: Bati o carro...", 105)
+                        choices = [(f"{row[1].strftime('%Y-%m-%d')}: {row[2]}...", row[0]) for row in rows]
+                        return choices
+                    else:
+                        return []
+        except Exception as e:
+            print(f"Erro ao buscar lista de check-ins: {e}")
+            return []
+
     def send_recado(self, psicologa_id: str, paciente_id: str, mensagem_texto: str):
-        # --- LÓGICA DE BACKUP REMOVIDA ---
+        # (Sem mudanças)
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
@@ -202,13 +228,13 @@ class DBService:
                     )
                     conn.commit()
                     print(f"Recado enviado por {psicologa_id} para {paciente_id} no SQL.")
-                         
                     return True, f"Recado enviado com sucesso para {paciente_id}!"
         except Exception as e:
             print(f"Erro ao enviar recado: {e}")
             return False, f"Erro no servidor ao enviar recado: {e}"
 
     def delete_last_record(self, paciente_id: str):
+        # (Sem mudanças)
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
@@ -217,7 +243,6 @@ class DBService:
                         (paciente_id,)
                     )
                     last_record = cur.fetchone()
-                    
                     if last_record:
                         record_id = last_record[0]
                         cur.execute("DELETE FROM checkins WHERE id = %s", (record_id,))
