@@ -1,16 +1,17 @@
-# services/db_service.py (Com Conexão Sheets Opcional)
+# services/db_service.py (Versão SQL-Only, sem backup no Sheets)
 import psycopg2
 from psycopg2 import sql
 from contextlib import contextmanager
 from datetime import datetime
 from models.schemas import CheckinFinal, GeminiResponse
 import os
-from .sheets_connector import SheetsConnector # <-- MANTIDO
+import json
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 @contextmanager
 def get_db_connection():
+    """Função 'helper' para conectar e fechar o banco de dados com segurança."""
     if not DATABASE_URL:
         raise ValueError("DATABASE_URL não foi definida. Exporte a variável de ambiente.")
     conn = psycopg2.connect(DATABASE_URL)
@@ -23,21 +24,14 @@ class DBService:
     def __init__(self):
         self.psicologas_list = []
         self.all_users_data = []
-        self.sheets_connector = None 
+        # self.sheets_connector = None # <-- REMOVIDO
         
         try:
             with get_db_connection() as conn:
                 print("Conexão com PostgreSQL (Render) bem-sucedida.")
-
-            # Tenta carregar o conector Sheets (pode falhar, mas o app principal continua)
-            try:
-                self.sheets_connector = SheetsConnector()
-                print("Google Sheets Connector ativado para backup.")
-            except Exception: # <-- AQUI ELE FALHARÁ SE AS CHAVES OU DEPENDÊNCIAS ESTIVEREM ERRADAS
-                self.sheets_connector = None
-                print("Alerta: Google Sheets (Backup) desativado (Faltando Chaves ou gspread).")
             
-            # Carrega a lista de psicólogas na inicialização
+            # Não tenta mais conectar ao Sheets
+            
             self.psicologas_list = self.get_psicologas_list_for_signup()
             self.all_users_data = self.get_all_users()
             print(f"{len(self.psicologas_list)} psicólogas carregadas do DB.")
@@ -46,11 +40,7 @@ class DBService:
             self.psicologas_list = ["ERRO NO DB"]
             self.all_users_data = []
 
-    # (Todas as outras funções do DBService, incluindo o send_recado completo, são mantidas)
-    # ... (restante do código omitido para brevidade) ...
-
     def get_all_users(self):
-        # (Sem mudanças)
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
@@ -62,7 +52,6 @@ class DBService:
             return []
 
     def get_psicologas_list_for_signup(self):
-        # (Sem mudanças)
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
@@ -74,7 +63,6 @@ class DBService:
             return ["Erro ao carregar lista"]
 
     def get_pacientes_da_psicologa(self, psicologa_username: str):
-        # (Sem mudanças)
         pacientes = []
         try:
             for row in self.all_users_data:
@@ -88,7 +76,6 @@ class DBService:
             return [f"Erro ao buscar pacientes: {e}"]
 
     def check_user(self, username, password):
-        # (Sem mudanças)
         try:
             for row in self.all_users_data:
                 if row and len(row) > 3 and row[0] == username and row[1] == password:
@@ -103,7 +90,6 @@ class DBService:
             return False, None, None
 
     def create_user(self, username, password, psicologa_selecionada):
-        # (Sem mudanças)
         if not username or not password or len(username) < 3 or len(password) < 3:
             return False, "Usuário e senha devem ter pelo menos 3 caracteres."
         if not psicologa_selecionada or psicologa_selecionada == "Nenhuma psicóloga encontrada":
@@ -128,7 +114,7 @@ class DBService:
             return False, f"Erro no servidor ao tentar criar usuário: {e}"
 
     def write_checkin(self, checkin: CheckinFinal, gemini_data: GeminiResponse, paciente_id: str, psicologa_id: str, compartilhado: bool):
-        # (Função de escrita, sem mudanças)
+        # --- LÓGICA DE BACKUP REMOVIDA ---
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
@@ -154,18 +140,8 @@ class DBService:
         except Exception as e:
             print(f"Erro ao escrever no SQL (checkin): {e}")
             raise
-            
-        # 2. SALVAR NO GOOGLE SHEETS (Backup Opcional)
-        if self.sheets_connector:
-            try:
-                self.sheets_connector.write_checkin(checkin, gemini_data, paciente_id, psicologa_id, compartilhado)
-                print("Backup para Google Sheets bem-sucedido.")
-            except Exception as e:
-                print(f"AVISO: Falha no backup para Google Sheets: {e}")
-
 
     def get_all_checkin_data(self):
-        # (Função de Leitura - Sem mudanças)
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
@@ -178,7 +154,6 @@ class DBService:
             return [], []
 
     def get_recados_paciente(self, paciente_id: str):
-        # (Função de Leitura - Sem mudanças)
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
@@ -194,7 +169,6 @@ class DBService:
             return [], []
 
     def get_ultimo_diario_paciente(self, paciente_id: str):
-        # (Função de Leitura - Sem mudanças)
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
@@ -218,7 +192,7 @@ class DBService:
             return None, f"Erro ao buscar diário: {e}"
 
     def send_recado(self, psicologa_id: str, paciente_id: str, mensagem_texto: str):
-        # (Função de Escrita - Sem mudanças)
+        # --- LÓGICA DE BACKUP REMOVIDA ---
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
@@ -228,10 +202,6 @@ class DBService:
                     )
                     conn.commit()
                     print(f"Recado enviado por {psicologa_id} para {paciente_id} no SQL.")
-                    
-                    if self.sheets_connector:
-                         self.sheets_connector.send_recado(psicologa_id, paciente_id, mensagem_texto)
-                         print("Backup de Recado para Sheets bem-sucedido.")
                          
                     return True, f"Recado enviado com sucesso para {paciente_id}!"
         except Exception as e:
@@ -239,7 +209,6 @@ class DBService:
             return False, f"Erro no servidor ao enviar recado: {e}"
 
     def delete_last_record(self, paciente_id: str):
-        # (Função de Delete - Sem mudanças)
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
