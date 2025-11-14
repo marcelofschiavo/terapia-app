@@ -8,3 +8,4 @@ fastapi
 pandas
 plotly
 matplotlib
+Babel

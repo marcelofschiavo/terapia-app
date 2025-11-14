@@ -66,7 +66,6 @@ class DBService:
             for row in self.all_users_data:
                 if len(row) > 3 and row[2] == "Paciente" and row[3] == psicologa_username:
                     pacientes.append(row[0]) 
-            # NÃO ADICIONA "Nenhum paciente..." para que o "Todos" funcione
             return pacientes
         except Exception as e:
             print(f"Erro ao buscar pacientes: {e}")
@@ -111,7 +110,6 @@ class DBService:
             return False, f"Erro no servidor ao tentar criar usuário: {e}"
 
     def write_checkin(self, checkin: CheckinFinal, gemini_data: GeminiResponse, paciente_id: str, psicologa_id: str, compartilhado: bool):
-        # (Sem mudanças)
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
@@ -139,7 +137,6 @@ class DBService:
             raise
 
     def get_all_checkin_data(self):
-        # (Sem mudanças)
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
@@ -152,7 +149,6 @@ class DBService:
             return [], []
 
     def get_recados_paciente(self, paciente_id: str):
-        # (Sem mudanças)
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
@@ -167,9 +163,7 @@ class DBService:
             print(f"Erro ao ler recados: {e}")
             return [], []
 
-    # --- FUNÇÃO ATUALIZADA (Request 6) ---
     def get_diario_by_checkin_id(self, checkin_id: int):
-        """Busca um diário e tópicos específicos por ID."""
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
@@ -188,9 +182,9 @@ class DBService:
             print(f"Erro ao buscar diário por ID: {e}")
             return None, f"Erro ao buscar diário: {e}"
 
-    # --- NOVA FUNÇÃO (Request 6) ---
+    # --- FUNÇÃO ATUALIZADA (Request 3) ---
     def get_checkin_list_for_paciente(self, paciente_id: str):
-        """Busca uma lista de (id, timestamp) para o dropdown de seleção de registro."""
+        """Busca uma lista de (id, timestamp, area, sentimento, snippet) para o dropdown."""
         if not paciente_id or paciente_id == "Todos":
             return []
             
@@ -199,7 +193,7 @@ class DBService:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        SELECT id, timestamp, LEFT(diario_texto, 40) FROM checkins 
+                        SELECT id, timestamp, area, sentimento, LEFT(diario_texto, 40) FROM checkins 
                         WHERE paciente_id = %s AND compartilhado = TRUE 
                         ORDER BY timestamp DESC LIMIT 50
                         """,
@@ -208,8 +202,11 @@ class DBService:
                     rows = cur.fetchall()
                     if rows:
                         # Formata como [ (label, valor) ] para o Gradio
-                        # Ex: ("2025-11-12: Bati o carro...", 105)
-                        choices = [(f"{row[1].strftime('%Y-%m-%d')}: {row[2]}...", row[0]) for row in rows]
+                        # Ex: ("12/Nov | Acadêmica | Nota: 1 | Não consigo focar...", 101)
+                        choices = [
+                            (f"{row[1].strftime('%d/%b')} | {row[2].split(':')[0]} | Nota: {row[3]} | {row[4]}...", row[0]) 
+                            for row in rows
+                        ]
                         return choices
                     else:
                         return []
@@ -218,7 +215,6 @@ class DBService:
             return []
 
     def send_recado(self, psicologa_id: str, paciente_id: str, mensagem_texto: str):
-        # (Sem mudanças)
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
@@ -234,7 +230,6 @@ class DBService:
             return False, f"Erro no servidor ao enviar recado: {e}"
 
     def delete_last_record(self, paciente_id: str):
-        # (Sem mudanças)
         try:
             with get_db_connection() as conn:
                 with conn.cursor() as cur:
@@ -243,6 +238,7 @@ class DBService:
                         (paciente_id,)
                     )
                     last_record = cur.fetchone()
+                    
                     if last_record:
                         record_id = last_record[0]
                         cur.execute("DELETE FROM checkins WHERE id = %s", (record_id,))

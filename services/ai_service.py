@@ -1,40 +1,29 @@
-# services/ai_service.py (Versão Leve)
+# services/ai_service.py
 import os
 import json
-# from transformers import pipeline # <-- REMOVIDO
 import google.generativeai as genai
 from models.schemas import CheckinContext, DrilldownRequest, CheckinFinal, GeminiResponse
-# from fastapi import UploadFile # <-- REMOVIDO
-
-"""
-(Atualizado) 
-1. REMOVIDO o Whisper (transformers) para deixar o app mais leve.
-"""
+import pandas as pd
 
 class AIService:
     def __init__(self):
         print("Carregando serviços de IA...")
-        # self.transcriber = self._load_whisper() # <-- REMOVIDO
-        self.transcriber = None
         self.gemini_model = self._load_gemini()
+        self.gemini_model_text_only = self._load_gemini(response_mime_type="text/plain")
 
-    def _load_whisper(self):
-        # --- FUNÇÃO REMOVIDA ---
-        pass
-
-    def _load_gemini(self):
+    def _load_gemini(self, response_mime_type="application/json"):
         # (Sem mudanças)
         try:
             GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
             if not GOOGLE_API_KEY:
                 raise ValueError("Variável de ambiente GOOGLE_API_KEY não definida.")
             genai.configure(api_key=GOOGLE_API_KEY)
-            generation_config = {"temperature": 0.8, "response_mime_type": "application/json"} 
+            generation_config = {"temperature": 0.8, "response_mime_type": response_mime_type} 
             model = genai.GenerativeModel(
                 model_name="gemini-flash-latest", 
                 generation_config=generation_config
             )
-            print("Modelo Gemini (flash-latest) configurado com sucesso.")
+            print(f"Modelo Gemini ({response_mime_type}) configurado com sucesso.")
             return model
         except Exception as e:
             print(f"Erro ao configurar o Gemini: {e}")
@@ -42,7 +31,7 @@ class AIService:
 
     async def get_suggestions(self, contexto: CheckinContext):
         # (Sem mudanças)
-        if not self.gemini_model: raise Exception("Modelo Gemini não carregado.")
+        if not self.gemini_model: raise Exception("Modelo Gemini (JSON) não carregado.")
         sentimento_desc = "muito positivo"
         if contexto.sentimento <= 2: sentimento_desc = "extremamente negativo"
         elif contexto.sentimento <= 3: sentimento_desc = "negativo"
@@ -66,7 +55,7 @@ class AIService:
 
     async def get_drilldown_questions(self, request: DrilldownRequest):
         # (Sem mudanças)
-        if not self.gemini_model: raise Exception("Modelo Gemini não carregado.")
+        if not self.gemini_model: raise Exception("Modelo Gemini (JSON) não carregado.")
         prompt = f"""
         Contexto: O usuário selecionou o tópico: "{request.topico_selecionado}"
         Gere 4 perguntas-chave curtas para investigar este tópico.
@@ -83,14 +72,9 @@ class AIService:
             print(f"Erro ao chamar Gemini (Nível 2): {e}")
             return {"perguntas": ["Pode detalhar mais?", "Como você se sentiu?"]}
 
-    async def transcribe_audio(self, file): # <-- 'UploadFile' removido
-        # --- FUNÇÃO ATUALIZADA (Placeholder) ---
-        print("A função de transcrição de áudio foi desativada.")
-        return {"transcricao": "[Áudio desativado]"}
-
     async def process_final_checkin(self, checkin_data: CheckinFinal, diario_para_analise: str) -> GeminiResponse:
         # (Sem mudanças)
-        if not self.gemini_model: raise Exception("Modelo Gemini não carregado.")
+        if not self.gemini_model: raise Exception("Modelo Gemini (JSON) não carregado.")
         if not diario_para_analise: 
             return GeminiResponse(
                 insight="Seu check-in de sentimento foi salvo.",
@@ -122,8 +106,7 @@ class AIService:
 
     async def get_sugestao_recado_psicologa(self, ultimo_diario_paciente: str, rascunho_psicologa: str):
         # (Sem mudanças)
-        if not self.gemini_model:
-            raise Exception("Modelo Gemini não carregado.")
+        if not self.gemini_model_text_only: raise Exception("Modelo Gemini (Texto) não carregado.")
         if not ultimo_diario_paciente:
             return {"recado": "O paciente não deixou um diário para este registro."}
         prompt = f"""
@@ -140,17 +123,43 @@ class AIService:
         Sua tarefa é usar AMBOS os textos como contexto. Gere uma mensagem empática e completa. 
         Se o rascunho já tiver um bom começo, continue a partir dele. 
         Se o rascunho estiver vazio, apenas responda ao diário do paciente.
-        Retorne APENAS um objeto JSON válido no formato:
-        {{"recado": "Sua mensagem sugerida (ou completada) aqui."}}
+        Retorne APENAS a mensagem sugerida, sem JSON.
         """
         try:
-            response = await self.gemini_model.generate_content_async(prompt)
-            json_data = json.loads(response.text)
-            print(f"Sugestão de Recado: {json_data.get('recado', 'N/A')}")
-            return json_data
+            response = await self.gemini_model_text_only.generate_content_async(prompt)
+            return {"recado": response.text}
         except Exception as e:
             print(f"Erro ao gerar sugestão de recado: {e}")
             return {"recado": f"Erro ao gerar sugestão: {e}"}
+
+    # --- NOVA FUNÇÃO (Request 1) ---
+    async def get_analytics_summary(self, df: pd.DataFrame, paciente_id_filtro: str):
+        """Gera um resumo em markdown da análise dos gráficos."""
+        if not self.gemini_model_text_only: raise Exception("Modelo Gemini (Texto) não carregado.")
+        if df.empty:
+            return "Sem dados para resumir."
+            
+        try:
+            # Prepara os dados para o prompt
+            sentimento_medio = df['sentimento'].mean()
+            areas_baixas = df[df['sentimento'] <= 2]['area'].value_counts().head(3).to_dict()
+            temas_comuns = df['temas_gemini'].str.split(', ').explode().str.strip().value_counts().head(3).to_dict()
+
+            prompt = f"""
+            Você é um assistente de IA para uma psicóloga. Analise os seguintes dados brutos de check-in
+            para o filtro '{paciente_id_filtro}' e escreva um resumo diagnóstico em 3-4 frases curtas (em markdown).
+            
+            - Sentimento Médio (1-5): {sentimento_medio:.2f}
+            - Contagem de Áreas com nota baixa (<=2): {areas_baixas}
+            - Contagem de Temas (IA) mais comuns: {temas_comuns}
+            
+            Seja direto e foque em insights acionáveis (ex: "A área X está crítica", "O tema Y é recorrente").
+            """
+            response = await self.gemini_model_text_only.generate_content_async(prompt)
+            return response.text
+        except Exception as e:
+            print(f"Erro ao gerar resumo de analytics: {e}")
+            return "Erro ao gerar resumo."
 
 # Cria uma instância única
 ai_service = AIService()
