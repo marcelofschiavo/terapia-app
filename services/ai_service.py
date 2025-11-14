@@ -12,7 +12,6 @@ class AIService:
         self.gemini_model_text_only = self._load_gemini(response_mime_type="text/plain")
 
     def _load_gemini(self, response_mime_type="application/json"):
-        # (Sem mudanças)
         try:
             GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
             if not GOOGLE_API_KEY:
@@ -29,8 +28,8 @@ class AIService:
             print(f"Erro ao configurar o Gemini: {e}")
             return None
 
+    # (Funções get_suggestions, get_drilldown_questions, process_final_checkin - Omitidas para brevidade, sem mudanças)
     async def get_suggestions(self, contexto: CheckinContext):
-        # (Sem mudanças)
         if not self.gemini_model: raise Exception("Modelo Gemini (JSON) não carregado.")
         sentimento_desc = "muito positivo"
         if contexto.sentimento <= 2: sentimento_desc = "extremamente negativo"
@@ -52,9 +51,7 @@ class AIService:
         except Exception as e:
             print(f"Erro ao chamar Gemini (Nível 1): {e}")
             return {"sugestoes": ["Fale sobre seu dia", "O que mais te marcou hoje?"]}
-
     async def get_drilldown_questions(self, request: DrilldownRequest):
-        # (Sem mudanças)
         if not self.gemini_model: raise Exception("Modelo Gemini (JSON) não carregado.")
         prompt = f"""
         Contexto: O usuário selecionou o tópico: "{request.topico_selecionado}"
@@ -71,9 +68,7 @@ class AIService:
         except Exception as e:
             print(f"Erro ao chamar Gemini (Nível 2): {e}")
             return {"perguntas": ["Pode detalhar mais?", "Como você se sentiu?"]}
-
     async def process_final_checkin(self, checkin_data: CheckinFinal, diario_para_analise: str) -> GeminiResponse:
-        # (Sem mudanças)
         if not self.gemini_model: raise Exception("Modelo Gemini (JSON) não carregado.")
         if not diario_para_analise: 
             return GeminiResponse(
@@ -108,7 +103,7 @@ class AIService:
         # (Sem mudanças)
         if not self.gemini_model_text_only: raise Exception("Modelo Gemini (Texto) não carregado.")
         if not ultimo_diario_paciente:
-            return {"recado": "O paciente não deixou um diário para este registro."}
+            return "O paciente não deixou um diário para este registro."
         prompt = f"""
         Contexto: Você é uma psicóloga (TCC). Um paciente enviou o seguinte registro de diário:
         ---
@@ -127,34 +122,54 @@ class AIService:
         """
         try:
             response = await self.gemini_model_text_only.generate_content_async(prompt)
-            return {"recado": response.text}
+            return response.text
         except Exception as e:
             print(f"Erro ao gerar sugestão de recado: {e}")
-            return {"recado": f"Erro ao gerar sugestão: {e}"}
+            return f"Erro ao gerar sugestão: {e}"
 
-    # --- NOVA FUNÇÃO (Request 1) ---
-    async def get_analytics_summary(self, df: pd.DataFrame, paciente_id_filtro: str):
-        """Gera um resumo em markdown da análise dos gráficos."""
+    # --- FUNÇÃO ATUALIZADA (Request 1, 2, 3) ---
+    async def get_analytics_summary(self, df: pd.DataFrame, paciente_id_filtro: str, section: str):
+        """Gera resumos de IA para seções específicas do dashboard."""
         if not self.gemini_model_text_only: raise Exception("Modelo Gemini (Texto) não carregado.")
         if df.empty:
             return "Sem dados para resumir."
             
         try:
-            # Prepara os dados para o prompt
+            # Prepara os dados gerais
             sentimento_medio = df['sentimento'].mean()
-            areas_baixas = df[df['sentimento'] <= 2]['area'].value_counts().head(3).to_dict()
-            temas_comuns = df['temas_gemini'].str.split(', ').explode().str.strip().value_counts().head(3).to_dict()
-
+            
             prompt = f"""
             Você é um assistente de IA para uma psicóloga. Analise os seguintes dados brutos de check-in
-            para o filtro '{paciente_id_filtro}' e escreva um resumo diagnóstico em 3-4 frases curtas (em markdown).
+            para o filtro '{paciente_id_filtro}' e escreva um resumo diagnóstico em 2-3 frases curtas (em markdown)
+            focando APENAS na seção solicitada:
             
-            - Sentimento Médio (1-5): {sentimento_medio:.2f}
-            - Contagem de Áreas com nota baixa (<=2): {areas_baixas}
-            - Contagem de Temas (IA) mais comuns: {temas_comuns}
-            
-            Seja direto e foque em insights acionáveis (ex: "A área X está crítica", "O tema Y é recorrente").
+            - Sentimento Médio Geral (1-5): {sentimento_medio:.2f}
             """
+
+            if section == "evolucao":
+                areas_baixas = df[df['sentimento'] <= 2]['area'].value_counts().head(3).to_dict()
+                prompt += f"""
+                - Seção: 'Tendências e Evolução'
+                - Contagem de Áreas com nota baixa (<=2): {areas_baixas}
+                - Foco: Analise a tendência (sentimento médio) e as áreas mais críticas (notas baixas).
+                """
+            elif section == "temas_ia":
+                temas_comuns = df['temas_gemini'].str.split(', ').explode().str.strip().value_counts().head(3).to_dict()
+                sentimentos_ia = df['sentimento_texto'].value_counts().head(3).to_dict()
+                prompt += f"""
+                - Seção: 'Temas e Sentimentos (IA)'
+                - Contagem de Temas (IA) mais comuns: {temas_comuns}
+                - Contagem de Sentimentos (IA) mais comuns: {sentimentos_ia}
+                - Foco: Analise os temas e sentimentos recorrentes detectados pela IA.
+                """
+            elif section == "desempenho":
+                boxplot_stats = df.groupby('area')['sentimento'].describe()[['mean', 'std', 'min', 'max']].to_dict('index')
+                prompt += f"""
+                - Seção: 'Desempenho por Área'
+                - Estatísticas de Sentimento por Área: {boxplot_stats}
+                - Foco: Analise a variabilidade (boxplot) e os horários de atividade (heatmap).
+                """
+
             response = await self.gemini_model_text_only.generate_content_async(prompt)
             return response.text
         except Exception as e:

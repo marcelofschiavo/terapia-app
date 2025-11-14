@@ -1,14 +1,14 @@
-# services/vis_service.py
+# services/vis_service.py (Corrigido o NameError e o Gráfico Vazio)
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from .db_service import db_service # Importa nosso serviço de banco de dados
 from datetime import datetime
 
-# --- FUNÇÃO ATUALIZADA (Request 9: Correção do Bug) ---
-def _create_clean_dataframe(psicologa_id: str = None, paciente_id: str = None, shared_only: bool = True):
+# --- MUDANÇA: Renomeado de _create_clean_dataframe para create_clean_dataframe ---
+def create_clean_dataframe(psicologa_id: str = None, paciente_id: str = None, shared_only: bool = True):
     """
-    Função helper interna. Busca todos os dados de check-in e os transforma
+    Função helper pública. Busca todos os dados de check-in e os transforma
     em um DataFrame limpo do Pandas, pronto para plotagem.
     """
     
@@ -42,9 +42,8 @@ def _create_clean_dataframe(psicologa_id: str = None, paciente_id: str = None, s
 def plot_sentiment_trend_paciente(paciente_id):
     """
     Gráfico 1 (Paciente): Tendência Individual (Pontos + Média Móvel)
-    (Request 9: Passa 'shared_only=False')
     """
-    df = _create_clean_dataframe(paciente_id=paciente_id, shared_only=False) 
+    df = create_clean_dataframe(paciente_id=paciente_id, shared_only=False) # <-- Usa a função pública
     
     if df.empty:
         return None 
@@ -71,12 +70,13 @@ def plot_analytics_overview(psicologa_id, paciente_id_filtro):
     """
     Dashboard 1 (Psicóloga): Gera 2 gráficos para a visão geral.
     """
-    df = _create_clean_dataframe(psicologa_id=psicologa_id, paciente_id=paciente_id_filtro)
+    df = create_clean_dataframe(psicologa_id=psicologa_id, paciente_id=paciente_id_filtro) # <-- Usa a função pública
     
     if df.empty:
         return None, None # Retorna 2 Nones
 
     # --- Gráfico 1: Tendência Geral de Sentimento (CORRIGIDO) ---
+    # --- MUDANÇA (Request 4): 'W' (Semanal) para 'D' (Diário) ---
     df_resampled = df.set_index('timestamp')['sentimento'].resample('D').mean().reset_index()
     
     fig_trend = px.line(
@@ -101,7 +101,7 @@ def plot_analytics_ia(psicologa_id, paciente_id_filtro):
     """
     Dashboard 2 (Psicóloga): Gera 2 gráficos de análise de IA.
     """
-    df = _create_clean_dataframe(psicologa_id=psicologa_id, paciente_id=paciente_id_filtro)
+    df = create_clean_dataframe(psicologa_id=psicologa_id, paciente_id=paciente_id_filtro) # <-- Usa a função pública
     
     if df.empty:
         return None, None # Retorna 2 Nones
@@ -130,12 +130,11 @@ def plot_analytics_ia(psicologa_id, paciente_id_filtro):
     
     return fig_temas, fig_sentimentos_ia
 
-# --- NOVA FUNÇÃO (Request 8) ---
 def plot_analytics_area(psicologa_id, paciente_id_filtro):
     """
     Dashboard 3 (Psicóloga): Gera 2 gráficos de desempenho por área.
     """
-    df = _create_clean_dataframe(psicologa_id=psicologa_id, paciente_id=paciente_id_filtro)
+    df = create_clean_dataframe(psicologa_id=psicologa_id, paciente_id=paciente_id_filtro) # <-- Usa a função pública
     
     if df.empty:
         return None, None # Retorna 2 Nones
@@ -155,7 +154,6 @@ def plot_analytics_area(psicologa_id, paciente_id_filtro):
     
     activity_heatmap = df.groupby(['dia_semana', 'hora_dia']).size().reset_index(name='contagem')
     
-    # Ordena os dias da semana
     dias_ordem = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
     
     fig_heatmap = px.density_heatmap(
